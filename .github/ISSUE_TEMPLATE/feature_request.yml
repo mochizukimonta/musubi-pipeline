@@ -1,0 +1,39 @@
+name: 機能の提案
+description: 追加してほしい機能や改善を提案する
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        提案ありがとうございます。
+
+        このアドオンは「クリエイターの作業を妨げないこと」を強い制約に
+        しています(常駐スレッドを持たない・保存を遅らせない・自動修正を
+        しない)。この方針と衝突する提案は採れないことがあります。
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: 困っていること
+      description: |
+        機能そのものより、**現場で何に困っているか**を書いてください。
+        別の解き方があるかもしれません。
+      placeholder: |
+        3人で作業していると、誰がどのカットを触っているのか
+        Blenderを開くまで分からず、作業がぶつかる。
+    validations:
+      required: true
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: 思いつく解決案
+      description: あれば書いてください。なくても構いません。
+
+  - type: textarea
+    id: context
+    attributes:
+      label: 制作の状況
+      description: |
+        チームの人数、映像制作かアセット制作か、LAN内かリモートか。
+        設計判断の材料になります。

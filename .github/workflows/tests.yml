@@ -1,0 +1,35 @@
+# SPDX-FileCopyrightText: 2026 mochizukimonta
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# テストは bpy に依存しないので、Blender をインストールせずに
+# 素の GitHub Actions ランナーで実行できる。
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.11 = Blender 4.2 同梱版 / 3.13 = Blender 5.x 同梱版
+        python-version: ["3.11", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Python ${{ matrix.python-version }} を用意
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: pytest を入れる
+        run: python -m pip install --upgrade pip pytest
+
+      - name: テストを実行
+        run: python -m pytest -v

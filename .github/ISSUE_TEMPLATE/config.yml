@@ -1,0 +1,7 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 脆弱性の報告(Issue に書かないでください)
+    url: https://github.com/mochizukimonta/musubi-pipeline/security/advisories/new
+    about: |
+      セキュリティ上の問題は公開 Issue ではなく、非公開の Security Advisory
+      から報告してください。詳しくは SECURITY.md を参照。

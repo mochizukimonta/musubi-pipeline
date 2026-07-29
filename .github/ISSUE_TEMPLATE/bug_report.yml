@@ -1,0 +1,87 @@
+name: バグ報告
+description: 動かない・落ちる・想定と違う挙動を報告する
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ご報告ありがとうございます。
+
+        **同期が壊れた・ファイルが消えたように見える場合**は、まず作業を止めて
+        プロジェクトフォルダごとバックアップを取ってください。調査より
+        データの保全が先です。
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: 何が起きましたか
+      description: 実際に起きたことと、期待していたことを書いてください。
+      placeholder: |
+        「カットとして保存」を押したら○○というエラーが出た。
+        期待: scenes/scene01/c01.blend に保存される。
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 再現手順
+      description: できるだけ最小の手順にしてください。
+      placeholder: |
+        1. 新規プロジェクトで「フォルダ構造を作成」(映像制作)
+        2. シーン番号1・カット番号1で「カットとして保存」
+        3. エラーが出る
+    validations:
+      required: true
+
+  - type: input
+    id: blender-version
+    attributes:
+      label: Blender のバージョン
+      description: Blender の「ヘルプ > システム情報」またはスプラッシュ画面で確認できます。
+      placeholder: "4.2.1 LTS"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: OS
+      description: |
+        Syncthing の自動導入は Windows 専用です。それ以外の機能
+        (バージョン管理・進行ボード・品質チェック)はどの OS でも動きます。
+      options:
+        - Windows 11
+        - Windows 10
+        - macOS
+        - Linux
+        - その他
+    validations:
+      required: true
+
+  - type: input
+    id: addon-version
+    attributes:
+      label: Musubi Pipeline のバージョン
+      description: プリファレンス > アドオン、または配布zipのファイル名で確認できます。
+      placeholder: "0.26.0"
+    validations:
+      required: true
+
+  - type: textarea
+    id: console
+    attributes:
+      label: エラーメッセージ / コンソール出力
+      description: |
+        Windows なら「ウィンドウ > システムコンソールを切り替え」で
+        Python のエラー全文が見られます。**フォルダのパスに個人情報や
+        取引先の名前が含まれていないか確認してから貼ってください。**
+      render: text
+
+  - type: textarea
+    id: sync-context
+    attributes:
+      label: 同期に関わる問題の場合
+      description: |
+        端末の台数、Syncthing が稼働していたか、LAN内かVPN越しか、
+        同時に同じファイルを開いていた人がいたか、など。
