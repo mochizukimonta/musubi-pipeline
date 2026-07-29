@@ -6,7 +6,7 @@
 ロック・バージョン履歴が誤動作すると、失われるのは実際に誰かが数時間かけて
 作ったデータです。そのため、機能の多さよりも「壊れないこと」を優先します。
 
-具体的には、[README の「設計上の約束」](README.md#設計上の約束)にある制約を
+具体的には、[README の「このアドオンが自分に課している約束」](README.md)にある制約を
 守ってください。この方針と衝突する変更は、良い機能であっても採れないことが
 あります。方向性に迷ったら、コードを書く前に Issue で相談してください。
 
@@ -18,7 +18,7 @@ Blender は**要りません**。素の Python だけで開発とテストがで
 git clone https://github.com/mochizukimonta/musubi-pipeline.git
 cd musubi-pipeline
 python -m pip install pytest
-python -m pytest                # 98テスト、2秒ほど
+python -m pytest                # Blender 不要。数秒で終わります
 ```
 
 Python 3.11 以降が必要です(Blender 4.2 が 3.11、Blender 5.x が 3.13 を
@@ -29,7 +29,7 @@ Blender で実際に動かして確認したいときは、`musubi_pipeline/` �
 
 ```bash
 blender --command extension build --output-dir ..
-blender --command extension validate ../musubi_pipeline-0.26.0.zip
+blender --command extension validate ../musubi_pipeline-0.27.0.zip
 ```
 
 できた zip を Blender のウィンドウにドラッグ&ドロップすればインストールされます。

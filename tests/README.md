@@ -30,7 +30,7 @@ Blender なしで通る。
 | `test_syncthing.py` | 純関数 + REST | 招待往復、api() 差し替えで分岐検証(ネット非依存)、ensure_folderのパス相乗り防止、accept_pending(only=)の確認画面バイパス防止 |
 | `test_manifest.py` | 配布メタデータ | バージョンが bl_info と manifest で一致、ライセンスが GPL、GPL全文の同梱、全 .py の SPDX ヘッダー |
 
-現在 98 テスト。主要な不変条件はミューテーション(わざとバグを入れて赤くなるか)で
+主要な不変条件はミューテーション(わざとバグを入れて赤くなるか)で
 退行検知を確認済み: 同一秒衝突回避・enforce_size_cap の最新世代 protected・
 accept_pending の only フィルタ・ensure_folder のパス不一致中止。
 
