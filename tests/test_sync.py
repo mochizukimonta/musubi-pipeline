@@ -138,6 +138,24 @@ def test_force_release_refuses_fresh_lock_of_other_host(project, as_host):
     assert sync.read_lock(blend)["host"] == "pc-A"   # 残っている
 
 
+def test_reacquire_resets_the_stale_clock(project, as_host):
+    """保存のたびに 12時間の起点がリセットされる(作業中は奪われない)。
+
+    放置ロック解除の安全性はこの性質に乗っている。ここが壊れると、
+    「作業開始から12時間」で他人にロックを奪われるようになる。
+    """
+    blend = make_blend(project)
+    as_host("pc-A")
+    sync.acquire_lock(project, blend)
+    _age_lock(blend, 13)                    # 13時間放置された状態にする
+    assert sync.is_stale_lock(sync.read_lock(blend)) is True
+    sync.acquire_lock(project, blend)       # 本人が保存 = 取り直し
+    assert sync.is_stale_lock(sync.read_lock(blend)) is False
+    as_host("pc-B")
+    with pytest.raises(PipelineError, match="放置ロック"):
+        sync.force_release_lock(project, blend)
+
+
 def test_force_release_removes_own_fresh_lock(project, as_host):
     """自分のロックは経過時間に関係なく外せる(release_lock と同じ扱い)。"""
     blend = make_blend(project)

@@ -1,7 +1,7 @@
 schema_version = "1.0.0"
 
 id = "musubi_pipeline"
-version = "0.27.0"
+version = "0.28.0"
 name = "Musubi Pipeline"
 tagline = "Team production pipeline with P2P-sync integrity verification"
 maintainer = "mochizukimonta"
