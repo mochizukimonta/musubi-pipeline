@@ -381,6 +381,10 @@ class MUSUBI_PT_project(_MusubiPanel, bpy.types.Panel):
                           icon='ERROR' if i == 0 else 'BLANK1')
             col.label(text="編集せず閉じて、本人に確認してください",
                       icon='BLANK1')
+            # 放置ロック(12時間超)のときだけ、引き継ぎの導線を出す。
+            # 作業中の相手から奪えてしまわないよう、条件は ops 側で判定済み
+            if wm.musubi_lock_stale:
+                col.operator("musubi.force_release_lock", icon='UNLOCKED')
 
         reviewer = _is_reviewer(context)
         if not sc.musubi_project_root:

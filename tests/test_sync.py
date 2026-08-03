@@ -100,6 +100,92 @@ def test_lock_rejects_path_outside_root(project, as_host, tmp_path):
         sync.acquire_lock(project, outside)
 
 
+# --- 放置ロックの解除 -----------------------------------------------------
+#
+# 「解除できるのは放置ロックだけ」が守るべき不変条件。ここが緩むと、
+# 作業中の相手からロックを奪えてしまう。
+
+def _age_lock(blend, hours: float):
+    """既存のロックの取得時刻を hours 時間前に書き換える。"""
+    lp = blend.with_name(blend.name + ".lock")
+    info = json.loads(lp.read_text(encoding="utf-8"))
+    info["acquired_at"] = time.time() - hours * 3600
+    lp.write_text(json.dumps(info, ensure_ascii=False), encoding="utf-8")
+
+
+def test_force_release_removes_stale_lock_of_other_host(project, as_host):
+    blend = make_blend(project)
+    as_host("pc-A")
+    sync.acquire_lock(project, blend)
+    _age_lock(blend, 13)
+    as_host("pc-B")
+    info = sync.force_release_lock(project, blend)
+    assert info["host"] == "pc-A"        # 誰のロックを外したか返る
+    assert sync.read_lock(blend) is None
+    # 解除後は他端末が普通に取得できる
+    assert sync.acquire_lock(project, blend)["host"] == "pc-B"
+
+
+def test_force_release_refuses_fresh_lock_of_other_host(project, as_host):
+    """まだ作業中かもしれない相手のロックは、確認ボタンを押しても外せない。"""
+    blend = make_blend(project)
+    as_host("pc-A")
+    sync.acquire_lock(project, blend)
+    _age_lock(blend, 11.9)
+    as_host("pc-B")
+    with pytest.raises(PipelineError, match="放置ロック"):
+        sync.force_release_lock(project, blend)
+    assert sync.read_lock(blend)["host"] == "pc-A"   # 残っている
+
+
+def test_force_release_removes_own_fresh_lock(project, as_host):
+    """自分のロックは経過時間に関係なく外せる(release_lock と同じ扱い)。"""
+    blend = make_blend(project)
+    as_host("pc-A")
+    sync.acquire_lock(project, blend)
+    assert sync.force_release_lock(project, blend)["host"] == "pc-A"
+    assert sync.read_lock(blend) is None
+
+
+def test_force_release_without_lock_errors(project, as_host):
+    blend = make_blend(project)
+    as_host("pc-A")
+    with pytest.raises(PipelineError, match="ロックはありません"):
+        sync.force_release_lock(project, blend)
+
+
+def test_force_release_rejects_path_outside_root(project, as_host, tmp_path):
+    outside = tmp_path.parent / "outside.blend"
+    outside.write_bytes(b"x")
+    as_host("pc-A")
+    with pytest.raises(PipelineError, match="ルート外"):
+        sync.force_release_lock(project, outside)
+
+
+def test_force_release_removes_corrupted_lock(project, as_host):
+    """読めないロックは放置扱いで外せる(監査も警告する対象)。"""
+    blend = make_blend(project)
+    blend.with_name(blend.name + ".lock").write_text("{{{ broken not json")
+    as_host("pc-B")
+    sync.force_release_lock(project, blend)
+    assert sync.read_lock(blend) is None
+
+
+def test_lock_age_survives_garbage_timestamp(project, as_host):
+    """acquired_at が数値でなくても例外にしない(同期フォルダは信頼しない)。
+
+    ここが落ちると、細工されたロックファイル1つでファイルを開けなくなる。
+    """
+    blend = make_blend(project)
+    blend.with_name(blend.name + ".lock").write_text(
+        json.dumps({"host": "pc-A", "user": "x", "acquired_at": "きのう"}))
+    as_host("pc-B")
+    assert sync.lock_age_hours(sync.read_lock(blend)) == float("inf")
+    assert sync.is_stale_lock(sync.read_lock(blend)) is True
+    with pytest.raises(PipelineError, match="編集中"):   # 開くのは阻止したまま
+        sync.acquire_lock(project, blend)
+
+
 # --- 照合リスト(SHA-256 マニフェスト) -----------------------------------
 
 def test_manifest_verify_in_sync(project, as_host):

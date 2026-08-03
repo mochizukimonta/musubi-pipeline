@@ -181,9 +181,16 @@ class MUSUBI_OT_reload_libs(bpy.types.Operator):
 _our_lock: tuple[str, str] | None = None  # (root_str, blend_path)
 
 
-def _set_lock_warning(wm, msg: str):
+def _set_lock_warning(wm, msg: str, stale: bool = False):
+    """ロック警告を UI に渡す。`stale` は放置ロック解除ボタンの表示条件。
+
+    経過時間の判定はここ(ハンドラ/ボタンの中)で1回だけ行い、結果を
+    真偽値で渡します。UI層は draw() が毎フレーム呼ばれるため、
+    ロックファイルを読みに行かせません。
+    """
     try:
         wm.musubi_lock_warning = msg
+        wm.musubi_lock_stale = stale
     except (AttributeError, TypeError):
         pass
 
@@ -206,7 +213,11 @@ def _sync_lock_state(root, fp: str, wm) -> str | None:
         _set_lock_warning(wm, "")
         return None
     except PipelineError as e:
-        _set_lock_warning(wm, str(e))
+        try:
+            stale = sync.is_stale_lock(sync.read_lock(Path(fp)))
+        except Exception:
+            stale = False
+        _set_lock_warning(wm, str(e), stale)
         return str(e)
 
 
@@ -486,6 +497,62 @@ class MUSUBI_OT_release_lock(bpy.types.Operator):
         return {'FINISHED'}
 
 
+class MUSUBI_OT_force_release_lock(bpy.types.Operator):
+    """放置ロック(12時間以上)を解除して、自分が作業を引き継ぐ"""
+    bl_idname = "musubi.force_release_lock"
+    bl_label = "放置ロックを解除"
+
+    # invoke で読み取った内容を draw に渡す(draw では I/O をしない)
+    holder: bpy.props.StringProperty(options={'HIDDEN'})
+    age_text: bpy.props.StringProperty(options={'HIDDEN'})
+    confirmed: bpy.props.BoolProperty(
+        name="本人が作業していないことを確認した", default=False,
+        description="連絡がついた、または連絡がつかず作業中でないと判断できる場合だけ")
+
+    def invoke(self, context, event):
+        fp = bpy.data.filepath
+        info = sync.read_lock(Path(fp)) if fp.endswith(".blend") else None
+        if info is None:
+            self.report({'INFO'}, "ロックはありません")
+            return {'CANCELLED'}
+        self.holder = f"{info.get('user','?')}@{info.get('host','?')}"
+        self.age_text = f"{sync.lock_age_hours(info):.0f}時間"
+        self.confirmed = False
+        return context.window_manager.invoke_props_dialog(self, width=420)
+
+    def draw(self, context):
+        col = self.layout.column()
+        col.label(text=f"{self.holder} のロックを解除します", icon='UNLOCKED')
+        col.label(text=f"取得から {self.age_text} 経過しています", icon='BLANK1')
+        warn = self.layout.column()
+        warn.alert = True
+        warn.label(text="本人がまだ作業中なら、その作業が消えることがあります",
+                   icon='ERROR')
+        self.layout.prop(self, "confirmed")
+
+    def execute(self, context):
+        if not self.confirmed:
+            self.report({'WARNING'}, "確認にチェックが入っていません(解除しません)")
+            return {'CANCELLED'}
+        fp = bpy.data.filepath
+        root = core.detect_root(fp)
+        if root is None:
+            self.report({'WARNING'}, "プロジェクト内のファイルではありません")
+            return {'CANCELLED'}
+        try:
+            info = sync.force_release_lock(str(root), Path(fp))
+        except PipelineError as e:
+            return _report_error(self, e)
+        # 解除しただけでは誰も持っていない状態になるので、続けて自分が取得する
+        msg = _sync_lock_state(root, fp, getattr(bpy.context, "window_manager", None))
+        who = f"{info.get('user','?')}@{info.get('host','?')}"
+        if msg:
+            self.report({'WARNING'}, f"{who} のロックを解除しましたが、取得できませんでした")
+        else:
+            self.report({'INFO'}, f"{who} の放置ロックを解除し、作業を引き継ぎました")
+        return {'FINISHED'}
+
+
 class MUSUBI_OT_render_output(bpy.types.Operator):
     """output/sceneXX/cYY.NNN.mp4 に次バージョン番号でレンダリング"""
     bl_idname = "musubi.render_output"
@@ -610,6 +677,7 @@ CLASSES = (
     MUSUBI_OT_create_structure,
     MUSUBI_OT_save_cut,
     MUSUBI_OT_release_lock,
+    MUSUBI_OT_force_release_lock,
     MUSUBI_OT_render_output,
     MUSUBI_OT_write_manifest,
     MUSUBI_OT_verify_sync,

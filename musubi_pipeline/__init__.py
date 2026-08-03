@@ -76,6 +76,10 @@ def _scene_props():
         default="")
     bpy.types.WindowManager.musubi_lock_warning = bpy.props.StringProperty(
         default="")
+    # 警告中のロックが放置ロック(12時間超)かどうか。解除ボタンの表示条件。
+    # 経過時間の判定は ops 側で1回だけ行い、UI は真偽値を見るだけにする
+    bpy.types.WindowManager.musubi_lock_stale = bpy.props.BoolProperty(
+        default=False)
     bpy.types.WindowManager.musubi_lib_outdated = bpy.props.StringProperty(
         default="")
     bpy.types.WindowManager.musubi_last_report = bpy.props.StringProperty(
@@ -127,7 +131,8 @@ def _del_scene_props():
         if hasattr(bpy.types.Scene, attr):
             delattr(bpy.types.Scene, attr)
     for attr in ("musubi_version_comment", "musubi_last_save_at",
-                 "musubi_lock_warning", "musubi_lib_outdated",
+                 "musubi_lock_warning", "musubi_lock_stale",
+                 "musubi_lib_outdated",
                  "musubi_last_report",
                  "musubi_st_status", "musubi_invite_path",
                  "musubi_st_show_advanced", "musubi_versions",

@@ -217,6 +217,26 @@ def read_lock(blend_path: Path) -> dict | None:
         return {"host": "?", "user": "?", "acquired_at": 0}
 
 
+def lock_age_hours(info: dict | None) -> float:
+    """ロック取得からの経過時間(時間)。
+
+    同期フォルダは信頼しないので、`acquired_at` が数値でない場合は
+    「壊れている = いくらでも古い」とみなす(解除の対象にはなるが、
+    取得の妨げにはならない側に倒す)。
+    """
+    if not info:
+        return 0.0
+    try:
+        return (time.time() - float(info.get("acquired_at", 0))) / 3600
+    except (TypeError, ValueError):
+        return float("inf")
+
+
+def is_stale_lock(info: dict | None) -> bool:
+    """放置ロック(既定12時間超)かどうか。"""
+    return bool(info) and lock_age_hours(info) > LOCK_STALE_HOURS
+
+
 def acquire_lock(root_str: str, blend_path: Path) -> dict:
     """ロックを取得する。他端末が保持していれば PipelineError。"""
     root = resolve_root(root_str)
@@ -228,7 +248,7 @@ def acquire_lock(root_str: str, blend_path: Path) -> dict:
     blend_path = safe_path(root, *parts)
     existing = read_lock(blend_path)
     if existing and existing.get("host") != host_id():
-        age_h = (time.time() - float(existing.get("acquired_at", 0))) / 3600
+        age_h = lock_age_hours(existing)
         stale = f"(取得から{age_h:.1f}時間経過・要確認)" if age_h > LOCK_STALE_HOURS else ""
         raise PipelineError(
             f"{blend_path.name} は {existing.get('user','?')}@{existing.get('host','?')} "
@@ -264,3 +284,36 @@ def release_lock(root_str: str, blend_path: Path) -> bool:
         )
     _lock_path(blend_path).unlink(missing_ok=True)
     return True
+
+
+def force_release_lock(root_str: str, blend_path: Path) -> dict:
+    """放置ロックに限り、他端末のロックでも解除する。
+
+    `release_lock` が他端末のロックを拒むのは、作業中の相手からロックを
+    奪わないためです。しかし Blender の強制終了・PC故障・長期不在では
+    ロックが残り続け、手作業で `.lock` を消す以外に手がなくなります。
+    そこで **LOCK_STALE_HOURS を過ぎたものだけ** を解除できるようにします。
+
+    まだ経過時間が足りないロックは PipelineError にします(奪い合いの防止)。
+    解除した相手の情報を返すので、呼び出し側は誰のロックを外したかを
+    報告できます。
+    """
+    root = resolve_root(root_str)
+    try:
+        parts = blend_path.relative_to(root).parts
+    except ValueError:
+        raise PipelineError(
+            f"プロジェクトルート外のファイルです: {blend_path}") from None
+    blend_path = safe_path(root, *parts)
+    existing = read_lock(blend_path)
+    if existing is None:
+        raise PipelineError(f"{blend_path.name} にロックはありません")
+    if existing.get("host") != host_id() and not is_stale_lock(existing):
+        age_h = lock_age_hours(existing)
+        raise PipelineError(
+            f"{existing.get('user','?')}@{existing.get('host','?')} が"
+            f"{age_h:.1f}時間前から編集中です。"
+            f"解除できるのは{LOCK_STALE_HOURS:.0f}時間を過ぎた放置ロックだけです"
+        )
+    _lock_path(blend_path).unlink(missing_ok=True)
+    return existing
