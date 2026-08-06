@@ -242,6 +242,13 @@ def on_root_update(self, context):
             self.musubi_sync_id = sid
     except Exception:
         pass
+    # 開いたプロジェクトを端末の履歴に積む(次回から選び直せるように)。
+    # 遅延importは循環参照を避けるため(project_ops は st_ops を知らない)
+    try:
+        from . import project_ops
+        project_ops.remember(self.musubi_project_root)
+    except Exception:
+        pass
     maybe_auto_resume()
     request_refresh()
 

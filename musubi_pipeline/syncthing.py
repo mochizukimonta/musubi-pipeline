@@ -34,7 +34,7 @@ from pathlib import Path
 from xml.etree import ElementTree
 
 from . import bl_info
-from .core import PipelineError
+from .core import PipelineError, local_root
 
 GITHUB_LATEST = "https://api.github.com/repos/syncthing/syncthing/releases/latest"
 ALLOWED_HOSTS = ("api.github.com", "github.com", "objects.githubusercontent.com")
@@ -74,8 +74,7 @@ def install_root() -> Path:
     ここに Syncthing のデバイス秘密鍵(端末の身分証)が入るため、
     このフォルダを消すと他端末とのペアリングがやり直しになる。
     """
-    base = os.environ.get("LOCALAPPDATA") or str(Path.home() / ".local/share")
-    return Path(base) / "musubi_pipeline" / "syncthing"
+    return local_root() / "syncthing"
 
 
 def binary_path() -> Path:

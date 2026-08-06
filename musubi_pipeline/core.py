@@ -67,6 +67,20 @@ class PipelineError(Exception):
     """パイプライン操作の検証エラー。"""
 
 
+def local_root() -> Path:
+    """端末ごとの状態を置く、同期対象外のローカル領域。
+
+    プロジェクトフォルダの中(`.musubi/`)はチーム全員に配られるので、
+    **この端末だけの事実**はここに置く。Syncthing の身分証(デバイス秘密鍵)と
+    開いたプロジェクトの履歴が該当する。
+
+    Blender のアドオン設定(`userpref.blend`)ではなくここを使うのは、
+    アドオンを入れ直しても消えないため。
+    """
+    base = os.environ.get("LOCALAPPDATA") or str(Path.home() / ".local/share")
+    return Path(base) / "musubi_pipeline"
+
+
 def atomic_replace(tmp: Path, dst: Path, retries: int = 10,
                    delay: float = 0.2) -> None:
     """os.replace のリトライ版。

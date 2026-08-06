@@ -21,7 +21,7 @@
 bl_info = {
     "name": "Musubi Pipeline",
     "author": "mochizukimonta",
-    "version": (0, 28, 0),
+    "version": (0, 29, 0),
     "blender": (4, 2, 0),
     "location": "3D Viewport > Sidebar > Musubi",
     "description": "チーム制作パイプライン(フォルダ構造・カット管理・同期検証)",
@@ -31,8 +31,8 @@ bl_info = {
 # core / sync はBlender外(検証スクリプト等)でも使えるようにする
 try:
     import bpy
-    from . import (ops, quality_ops, reel, review_ops, spec_ops, st_ops,
-                   task_ops, ui, ver_ops)
+    from . import (ops, project_ops, quality_ops, reel, review_ops, spec_ops,
+                   st_ops, task_ops, ui, ver_ops)
 except ModuleNotFoundError:  # Blender外での import(bpyなし)
     bpy = None
 
@@ -91,6 +91,9 @@ def _scene_props():
     bpy.types.WindowManager.musubi_st_show_advanced = bpy.props.BoolProperty(
         name="詳細(手動操作)", default=False,
         description="デバイスIDの手動コピペなど、上級者向けの操作を表示")
+    bpy.types.WindowManager.musubi_show_other_projects = bpy.props.BoolProperty(
+        name="ほかに参加中のプロジェクト", default=False,
+        description="いま開いていないプロジェクトの同期状態も表示する")
     bpy.types.WindowManager.musubi_versions = bpy.props.CollectionProperty(
         type=ver_ops.MusubiVersionItem)
     bpy.types.WindowManager.musubi_versions_index = bpy.props.IntProperty(
@@ -135,7 +138,8 @@ def _del_scene_props():
                  "musubi_lib_outdated",
                  "musubi_last_report",
                  "musubi_st_status", "musubi_invite_path",
-                 "musubi_st_show_advanced", "musubi_versions",
+                 "musubi_st_show_advanced", "musubi_show_other_projects",
+                 "musubi_versions",
                  "musubi_versions_index", "musubi_versions_summary",
                  "musubi_board", "musubi_board_index", "musubi_board_summary",
                  "musubi_board_filter", "musubi_reviews",
@@ -150,9 +154,18 @@ def register():
     # PropertyGroupを先に登録してからプロパティを定義する
     for cls in (ver_ops.CLASSES + task_ops.CLASSES + review_ops.CLASSES
                 + quality_ops.CLASSES + reel.CLASSES + spec_ops.CLASSES
-                + ops.CLASSES + st_ops.CLASSES + ui.CLASSES):
+                + ops.CLASSES + project_ops.CLASSES + st_ops.CLASSES
+                + ui.CLASSES):
         bpy.utils.register_class(cls)
     _scene_props()
+    # すでにルートが入ったファイルを開いた状態で有効化された場合、それを
+    # 履歴の種にする(旧版からの更新直後に一覧が空にならないように)
+    try:
+        project_ops.remember(bpy.context.scene.musubi_project_root)
+    except (AttributeError, TypeError):
+        pass
+    # プロジェクト履歴をここで1度だけ読む(以降は開いた時・押した時に更新)
+    project_ops.refresh()
     # 同期状態の更新はイベント駆動(オープン時・保存時・ボタン時のみ)。
     # 常設タイマー・常駐スレッドは持たない(クリエイターの作業を妨げない)
     if st_ops.on_file_load not in bpy.app.handlers.load_post:
@@ -188,5 +201,5 @@ def unregister():
     for cls in reversed(ver_ops.CLASSES + task_ops.CLASSES
                         + review_ops.CLASSES + quality_ops.CLASSES
                         + reel.CLASSES + spec_ops.CLASSES + ops.CLASSES
-                        + st_ops.CLASSES + ui.CLASSES):
+                        + project_ops.CLASSES + st_ops.CLASSES + ui.CLASSES):
         bpy.utils.unregister_class(cls)

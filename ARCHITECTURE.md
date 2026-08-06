@@ -24,10 +24,11 @@
 ├─ オペレーター層(bpy 依存)──────────────────────┤
 │ ops.py  st_ops.py  task_ops.py  review_ops.py     │
 │ ver_ops.py  quality_ops.py  spec_ops.py  reel.py   │
+│ project_ops.py                                     │
 ├─ データ層(bpy 非依存 = Blender 外でも動く)───────┤
 │ core.py  sync.py  tasks.py  reviews.py             │
 │ versions.py  spec.py  render_profiles.py           │
-│ syncthing.py  board_html.py                        │
+│ syncthing.py  board_html.py  projects.py           │
 │ security.py      … bpy は任意参照                  │
 │ quality.py       … 例外。bpy.data を読む(検査のため)│
 └────────────────────────────────────────────────┘
@@ -183,7 +184,7 @@ musubi-pipeline/            git リポジトリのルート
 ├── musubi_pipeline/        ここが配布zipの中身になる
 │   ├── blender_manifest.toml
 │   ├── LICENSE             GPL全文(配布物に同梱するため)
-│   └── *.py                21モジュール
+│   └── *.py                23モジュール
 ├── tests/                  zipの外。配布されない
 ├── pytest.ini
 ├── docs/ja/

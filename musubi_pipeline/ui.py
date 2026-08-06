@@ -14,6 +14,10 @@
 
 各パネルは折りたたみ可能で、開閉状態はBlenderが記憶する。
 
+**ルートが未設定の間は 1 しか出ない**(v0.29)。ルート指定がこのアドオンの
+入口で、それが無ければ 2〜6 はどれも動かないため、選択肢を1つに絞って
+「まずここを設定する」を迷わせない。設定した瞬間に残りが現れる。
+
 プリファレンスの役割スイッチ(制作者/レビュアー)で表示範囲が変わる:
 レビュアーでは 2〜4 とカット作業を隠し、プロジェクト・進行ボード・
 レビュー・チーム同期だけを出す(確認と指示が中心の人向け)。
@@ -34,6 +38,19 @@ def _is_reviewer(context) -> bool:
         prefs = context.preferences.addons[__package__].preferences
         return prefs.role == 'reviewer'
     except (KeyError, AttributeError):
+        return False
+
+
+def _has_root(context) -> bool:
+    """ルートが設定されているか。
+
+    ルート指定がこのアドオンの入口で、設定しなければどの機能も動かない。
+    そこで**未設定のうちは「プロジェクト」パネル以外を出さない**。
+    出しても押せないボタンが並ぶだけで、何から始めるのかが埋もれる。
+    """
+    try:
+        return bool(context.scene.musubi_project_root)
+    except AttributeError:
         return False
 
 
@@ -167,66 +184,81 @@ def _folder_summary(f) -> str:
     return f"{head} · {mates}" if mates else head
 
 
-def _draw_folder_map(box, rep):
-    """共有一覧: 1プロジェクト = 1枠。何個あっても見渡せる形にする。
+def _draw_folder_card(box, f):
+    """1プロジェクト = 1枠。
 
-    参加しているプロジェクトが多い使い方(制作の面倒を見に複数の現場へ
-    出入りする等)を想定している。他プロジェクトの共有は**異常ではない**
-    ので赤くしない。赤は実害があるものだけに使う(誰とも共有できていない
-    =同期されていない、など)。
+    他プロジェクトの共有は**異常ではない**ので赤くしない。赤は実害がある
+    ものだけに使う(誰とも共有できていない = 同期されていない、など)。
+    """
+    card = box.box()
+    col = card.column(align=True)
+
+    row = col.row(align=True)
+    row.label(text=f.get("id", "?"), icon=_folder_dot(f))
+    if f.get("current"):
+        tag = row.row()
+        tag.alignment = 'RIGHT'
+        tag.label(text="現在")
+    else:
+        # 「解除」は共有設定を壊すので再招待が必要。ふだん使うのは
+        # 可逆な「一時停止」の方なので、そちらを先に置く
+        if f.get("paused"):
+            op = row.operator("musubi.st_pause_folder", text="再開",
+                              icon='PLAY')
+            op.folder_id = f["id"]
+            op.paused = False
+        else:
+            op = row.operator("musubi.st_pause_folder", text="一時停止",
+                              icon='PAUSE')
+            op.folder_id = f["id"]
+            op.paused = True
+        row.operator("musubi.st_remove_folder", text="解除",
+                     icon='UNLINKED').folder_id = f["id"]
+
+    _wrap(col, f.get("path", ""), indent="")
+
+    if not (f.get("devices") or []):
+        warn = col.row()
+        warn.alert = True
+        warn.label(text="誰とも共有していません", icon='ERROR')
+        if f.get("paused"):
+            col.label(text="一時停止中", icon='BLANK1')
+    else:
+        _wrap(col, _folder_summary(f), indent="")
+    if f.get("errors"):
+        col.label(text=f"同期できないファイル {f['errors']}件",
+                  icon='ERROR')
+
+
+def _draw_folder_map(box, rep, wm):
+    """このパネルは「いま開いているプロジェクトの同期」を見る場所。
+
+    ほかに参加中のプロジェクトは、切り替えたいなら**プロジェクトパネルの
+    「別のプロジェクトを開く」**が入口になる。ここに全部並べると、いま関係の
+    ない同期IDが混ざって現在の状態が読みにくくなるので、折りたたんでおく。
+    一時停止・解除は同期そのものの操作なので、置き場所はここのままにする。
     """
     folders = rep.get("folders") or []
     if not folders:
         return
-    # 現在のプロジェクトを先頭に、残りはID順(並びが毎回変わらないように)
-    folders = sorted(folders,
-                     key=lambda f: (not f.get("current"), f.get("id", "")))
+    current = [f for f in folders if f.get("current")]
+    others = sorted((f for f in folders if not f.get("current")),
+                    key=lambda f: f.get("id", ""))
 
-    head = box.row(align=True)
-    head.label(text="共有中のプロジェクト", icon='FILE_FOLDER')
-    tail = head.row()
-    tail.alignment = 'RIGHT'
-    tail.label(text=f"{len(folders)}件")
+    for f in current:
+        _draw_folder_card(box, f)
 
-    for f in folders:
-        card = box.box()
-        col = card.column(align=True)
-
-        row = col.row(align=True)
-        row.label(text=f.get("id", "?"), icon=_folder_dot(f))
-        if f.get("current"):
-            tag = row.row()
-            tag.alignment = 'RIGHT'
-            tag.label(text="現在")
-        else:
-            # 「解除」は共有設定を壊すので再招待が必要。ふだん使うのは
-            # 可逆な「一時停止」の方なので、そちらを先に置く
-            if f.get("paused"):
-                op = row.operator("musubi.st_pause_folder", text="再開",
-                                  icon='PLAY')
-                op.folder_id = f["id"]
-                op.paused = False
-            else:
-                op = row.operator("musubi.st_pause_folder", text="一時停止",
-                                  icon='PAUSE')
-                op.folder_id = f["id"]
-                op.paused = True
-            row.operator("musubi.st_remove_folder", text="解除",
-                         icon='UNLINKED').folder_id = f["id"]
-
-        _wrap(col, f.get("path", ""), indent="")
-
-        if not (f.get("devices") or []):
-            warn = col.row()
-            warn.alert = True
-            warn.label(text="誰とも共有していません", icon='ERROR')
-            if f.get("paused"):
-                col.label(text="一時停止中", icon='BLANK1')
-        else:
-            _wrap(col, _folder_summary(f), indent="")
-        if f.get("errors"):
-            col.label(text=f"同期できないファイル {f['errors']}件",
-                      icon='ERROR')
+    if not others:
+        return
+    row = box.row()
+    row.prop(wm, "musubi_show_other_projects",
+             icon='TRIA_DOWN' if wm.musubi_show_other_projects
+             else 'TRIA_RIGHT',
+             text=f"ほかに参加中のプロジェクト({len(others)}件)",
+             emboss=False)
+    if wm.musubi_show_other_projects:
+        for f in others:
+            _draw_folder_card(box, f)
 
 
 def _draw_st_nav(box, rep, sc):
@@ -388,6 +420,11 @@ class MUSUBI_PT_project(_MusubiPanel, bpy.types.Panel):
 
         reviewer = _is_reviewer(context)
         if not sc.musubi_project_root:
+            from . import project_ops
+            # 1. 前に開いたプロジェクトに戻る(File > New の戻り道でもある)
+            project_ops.draw_open_project(layout, context)
+            # 2. 新しい場所を指定する
+            layout.separator()
             big = layout.column()
             big.scale_y = 1.4
             big.prop(sc, "musubi_project_root", text="ルート")
@@ -398,11 +435,17 @@ class MUSUBI_PT_project(_MusubiPanel, bpy.types.Panel):
                 info.label(text="・設定するとチーム同期が使えます")
                 info.label(text="・同期後、進行ボードとレビューが見られます")
             else:
-                info.label(text="ルート設定 = パイプライン管理の開始:",
+                info.label(text="ここを設定すると全機能が使えます:",
                            icon='INFO')
                 info.label(text="・保存(Ctrl+S)が自動でバージョン履歴に記録")
                 info.label(text="・カットは保存だけでロック・進捗も自動管理")
                 info.label(text="・チーム同期も自動で再開")
+            # 3. 新メンバーの入口。招待ファイルを受け取った人はここから
+            join = layout.box()
+            join.label(text="チームに誘われた人はこちら:", icon='COMMUNITY')
+            jc = join.column(align=True)
+            jc.label(text="空のフォルダを上のルートに指定してから↓")
+            jc.operator("musubi.st_invite_import", icon='IMPORT')
         else:
             layout.prop(sc, "musubi_project_root", text="ルート")
             card = layout.box()
@@ -414,11 +457,16 @@ class MUSUBI_PT_project(_MusubiPanel, bpy.types.Panel):
             else:
                 card.label(text="管理中 — Ctrl+Sは自動で履歴に記録",
                            icon='CHECKMARK')
-        if not reviewer:
-            layout.operator_menu_enum(
-                "musubi.create_structure", "template",
-                text="フォルダ構造を作成(テンプレート選択)",
-                icon='NEWFOLDER')
+            row = layout.row(align=True)
+            row.menu("MUSUBI_MT_projects", text="別のプロジェクトを開く",
+                     icon='FILE_FOLDER')
+            if not reviewer:
+                # 構造の作成はルートが決まってからの操作。未設定時に出すと
+                # 押せてしまい、必ずエラーになる
+                layout.operator_menu_enum(
+                    "musubi.create_structure", "template",
+                    text="フォルダ構造を作成(テンプレート選択)",
+                    icon='NEWFOLDER')
 
 
 class MUSUBI_PT_spec(_MusubiPanel, bpy.types.Panel):
@@ -427,7 +475,7 @@ class MUSUBI_PT_spec(_MusubiPanel, bpy.types.Panel):
 
     @classmethod
     def poll(cls, context):
-        return not _is_reviewer(context)
+        return _has_root(context) and not _is_reviewer(context)
 
     def draw_header(self, context):
         self.layout.label(text="", icon='TEXT')
@@ -444,7 +492,7 @@ class MUSUBI_PT_quality(_MusubiPanel, bpy.types.Panel):
 
     @classmethod
     def poll(cls, context):
-        return not _is_reviewer(context)
+        return _has_root(context) and not _is_reviewer(context)
 
     def draw_header(self, context):
         self.layout.label(text="", icon='CHECKMARK')
@@ -469,7 +517,7 @@ class MUSUBI_PT_versions(_MusubiPanel, bpy.types.Panel):
 
     @classmethod
     def poll(cls, context):
-        return not _is_reviewer(context)
+        return _has_root(context) and not _is_reviewer(context)
 
     def draw_header(self, context):
         self.layout.label(text="", icon='RECOVER_LAST')
@@ -522,6 +570,10 @@ class MUSUBI_PT_film(_MusubiPanel, bpy.types.Panel):
     """
     bl_idname = "MUSUBI_PT_film"
     bl_label = "映像制作(制作進行)"
+
+    @classmethod
+    def poll(cls, context):
+        return _has_root(context)
 
     def draw_header(self, context):
         self.layout.label(text="", icon='RENDER_ANIMATION')
@@ -615,6 +667,13 @@ class MUSUBI_PT_sync(_MusubiPanel, bpy.types.Panel):
     bl_idname = "MUSUBI_PT_sync"
     bl_label = "チーム同期"
 
+    @classmethod
+    def poll(cls, context):
+        # 参加する人も「空フォルダをルートに指定 → 招待ファイルで参加」の
+        # 順なので、未設定で隠しても手順と矛盾しない。参加の入口は
+        # プロジェクトパネルの中に置いてある
+        return _has_root(context)
+
     def draw_header(self, context):
         self.layout.label(text="", icon='UV_SYNC_SELECT')
 
@@ -630,7 +689,7 @@ class MUSUBI_PT_sync(_MusubiPanel, bpy.types.Panel):
         _draw_st_overview(box, rep, sc)
         _draw_st_nav(box, rep, sc)
         _draw_invite(box, wm)
-        _draw_folder_map(box, rep)
+        _draw_folder_map(box, rep, wm)
         _draw_st_status(box, wm, sc)
         box.operator("musubi.st_status", icon='FILE_REFRESH')
         # 上級者向け: 手動操作は「詳細」に折りたたむ
@@ -687,8 +746,8 @@ class MUSUBI_PT_report(_MusubiPanel, bpy.types.Panel):
 
     @classmethod
     def poll(cls, context):
-        return bool(getattr(context.window_manager,
-                            "musubi_last_report", ""))
+        return _has_root(context) and bool(
+            getattr(context.window_manager, "musubi_last_report", ""))
 
     def draw_header(self, context):
         self.layout.label(text="", icon='INFO')
