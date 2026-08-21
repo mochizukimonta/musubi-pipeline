@@ -373,6 +373,27 @@ def _draw_st_status(box, wm, sc):
                        "(開く/保存/更新ボタン時に確認)")
 
 
+def _draw_thumb_notice(layout, context):
+    """サムネイルが取れなかった世代がある、という注意(黄色・実害なし)。
+
+    原因は3通りある。(1) Blenderのプレビュー保存がオフ、(2) そもそも
+    プレビューが無い旧い世代、(3) `blender -b` での保存(ヘッドレスでは
+    設定に関わらずプレビューが埋まらない)。直せるのは (1) だけなので、
+    設定がオフのときだけ有効化ボタンを出す。Musubiは黙って設定を
+    書き換えない(赤は使わない。見られないだけで作業は続けられる)。
+    """
+    # 既定のサイドバー幅で切れない長さにする(ラベルは折り返せない)
+    note = layout.column(align=True)
+    note.label(text="サムネイルが無い世代あり", icon='ERROR')
+    paths = context.preferences.filepaths
+    if getattr(paths, "file_preview_type", 'AUTO') == 'NONE':
+        note.label(text="Blenderのプレビュー保存がオフです", icon='BLANK1')
+        note.operator("musubi.enable_blend_previews",
+                      icon='RESTRICT_VIEW_OFF')
+    else:
+        note.label(text="以後に保存された世代から表示されます", icon='BLANK1')
+
+
 # ---------------------------------------------------------------------------
 # パネル群(CLASSESの並び順 = サイドバーでの表示順)
 # ---------------------------------------------------------------------------
@@ -540,10 +561,24 @@ class MUSUBI_PT_versions(_MusubiPanel, bpy.types.Panel):
         col = row.column(align=True)
         col.operator("musubi.versions_refresh", text="", icon='FILE_REFRESH')
         col.operator("musubi.version_restore", text="", icon='LOOP_BACK')
+        # 選択中の1件を大きく表示(復元前にどの世代かを見て判断できるように)。
+        # アイコンIDは refresh_list が読み込み済みなので、ここではI/Oしない
+        idx = wm.musubi_versions_index
+        if 0 <= idx < len(wm.musubi_versions):
+            selected = wm.musubi_versions[idx]
+            if selected.icon_id:
+                layout.template_icon(icon_value=selected.icon_id, scale=7.0)
+        if wm.musubi_versions_no_thumb:
+            _draw_thumb_notice(layout, context)
         row = layout.row(align=True)
         row.prop(sc, "musubi_version_keep", text="保持世代")
         row.operator("musubi.versions_prune", text="このファイル")
         row.operator("musubi.versions_prune_all", text="全体")
+        # 復元直後は、一覧の先頭=「復元前の自動スナップショット」であって
+        # いま開いている内容ではない。次の保存まで、どの世代の内容かを示す
+        if wm.musubi_restored_label:
+            layout.label(text=f"復元中: {wm.musubi_restored_label[:34]} の内容",
+                         icon='LOOP_BACK')
         if wm.musubi_versions_summary:
             layout.label(text=wm.musubi_versions_summary)
         # 履歴の同期可否・サイズ上限(プリファレンス連動)

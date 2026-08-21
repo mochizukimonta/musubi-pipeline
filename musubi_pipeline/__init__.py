@@ -21,7 +21,7 @@
 bl_info = {
     "name": "Musubi Pipeline",
     "author": "mochizukimonta",
-    "version": (0, 29, 0),
+    "version": (0, 30, 0),
     "blender": (4, 2, 0),
     "location": "3D Viewport > Sidebar > Musubi",
     "description": "チーム制作パイプライン(フォルダ構造・カット管理・同期検証)",
@@ -100,6 +100,14 @@ def _scene_props():
         default=0)
     bpy.types.WindowManager.musubi_versions_summary = bpy.props.StringProperty(
         default="")
+    # サムネイルが取れなかった世代があるか(注意表示の条件)。判定は
+    # refresh_list が1度だけ行い、UIは真偽値を見るだけにする
+    bpy.types.WindowManager.musubi_versions_no_thumb = bpy.props.BoolProperty(
+        default=False)
+    # 復元直後だけ「いま開いているのはどの世代の内容か」を示す。
+    # WindowManager なので .blend を汚さず、Blenderを閉じれば消える
+    bpy.types.WindowManager.musubi_restored_label = bpy.props.StringProperty(
+        default="")
     bpy.types.WindowManager.musubi_board = bpy.props.CollectionProperty(
         type=task_ops.MusubiBoardItem)
     bpy.types.WindowManager.musubi_board_index = bpy.props.IntProperty(
@@ -141,6 +149,7 @@ def _del_scene_props():
                  "musubi_st_show_advanced", "musubi_show_other_projects",
                  "musubi_versions",
                  "musubi_versions_index", "musubi_versions_summary",
+                 "musubi_versions_no_thumb", "musubi_restored_label",
                  "musubi_board", "musubi_board_index", "musubi_board_summary",
                  "musubi_board_filter", "musubi_reviews",
                  "musubi_reviews_index", "musubi_qc_report",
@@ -158,6 +167,7 @@ def register():
                 + ui.CLASSES):
         bpy.utils.register_class(cls)
     _scene_props()
+    ver_ops.preview_register()  # 世代サムネイル用(アドオンごとに1つ)
     # すでにルートが入ったファイルを開いた状態で有効化された場合、それを
     # 履歴の種にする(旧版からの更新直後に一覧が空にならないように)
     try:
@@ -197,6 +207,8 @@ def unregister():
     # 自分の保持するロックも返す
     ops._release_current_lock()
     atexit.unregister(ops._release_current_lock)
+    # サムネイルのアイコンを解放する(再読込のたびに溜めない)
+    ver_ops.preview_unregister()
     _del_scene_props()
     for cls in reversed(ver_ops.CLASSES + task_ops.CLASSES
                         + review_ops.CLASSES + quality_ops.CLASSES

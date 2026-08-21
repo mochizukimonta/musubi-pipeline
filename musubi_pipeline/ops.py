@@ -298,6 +298,8 @@ def on_load_post(_a=None, _b=None):
     _record_lib_mtimes()
     try:
         wm.musubi_lib_outdated = ""
+        # 別のファイルを開いたら「復元中」の表示は的外れになる
+        wm.musubi_restored_label = ""
     except (AttributeError, TypeError):
         pass
     root = core.detect_root(fp) if fp.endswith(".blend") else None
@@ -337,6 +339,8 @@ def on_save_post(_a=None, _b=None):
         # 「保存はされている」ことをパネルに明示(履歴の10分ルールとの混同防止)
         bpy.context.window_manager.musubi_last_save_at = \
             time.strftime("%H:%M:%S")
+        # 保存した時点で中身が最新になるので「復元中」の表示は役目を終える
+        bpy.context.window_manager.musubi_restored_label = ""
     except AttributeError:
         pass
     if _suppress_auto:
