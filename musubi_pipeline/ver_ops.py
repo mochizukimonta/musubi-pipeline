@@ -272,8 +272,17 @@ class MUSUBI_OT_version_restore(bpy.types.Operator):
         # ない。サムネイルが付くと先頭の絵と画面の絵の食い違いが目立つため、
         # 次の通常保存まで「復元中」を出す(open_mainfile が on_load_post で
         # 一度消すので、必ずその後に入れる)
-        context.window_manager.musubi_restored_label = label
+        wm = context.window_manager
+        wm.musubi_restored_label = label
         refresh_list(context)
+        # refresh_list は既定で先頭行を選ぶが、復元直後の先頭は上記のとおり
+        # 「復元前の自動スナップショット」で、画面の内容ではない。いちばん
+        # 目立つ大きなサムネイルだけが画面と食い違って見えるので、復元した
+        # 世代を選び直し、サムネイル・「復元中」表示・画面を一致させる
+        for i, row in enumerate(wm.musubi_versions):
+            if row.version_name == version_name:
+                wm.musubi_versions_index = i
+                break
         self.report({'INFO'},
                     f"復元しました: {r['meta'].get('comment') or version_name}"
                     f"(直前の状態も履歴に退避済み){extra}")

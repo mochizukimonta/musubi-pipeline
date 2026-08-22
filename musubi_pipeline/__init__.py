@@ -21,7 +21,7 @@
 bl_info = {
     "name": "Musubi Pipeline",
     "author": "mochizukimonta",
-    "version": (0, 30, 0),
+    "version": (0, 30, 1),
     "blender": (4, 2, 0),
     "location": "3D Viewport > Sidebar > Musubi",
     "description": "チーム制作パイプライン(フォルダ構造・カット管理・同期検証)",
