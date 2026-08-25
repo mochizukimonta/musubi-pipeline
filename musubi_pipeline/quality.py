@@ -29,15 +29,14 @@ from pathlib import Path
 
 import bpy
 
+from . import assets
+from .assets import DEPS_DIR
 from .core import atomic_replace, cut_name, resolve_root, safe_path, scene_name
 from .sync import host_id
 
 LEVEL_OK = "OK"
 LEVEL_WARN = "WARN"
 LEVEL_CRITICAL = "CRITICAL"
-
-DEPS_DIR = (".musubi", "deps")
-_DEPS_FILE_RE = re.compile(r"^(scene\d{2,3})_(c\d{2,3})\.json$")
 
 DEFAULT_NAME_RE = re.compile(
     r"^(Cube|Cylinder|Sphere|Icosphere|IcoSphere|Plane|Circle|Cone|Torus|Grid|"
@@ -265,21 +264,10 @@ def record_deps(root_str: str, scene_no: int, cut_no: int) -> Path:
 
 
 def asset_usage(root_str: str) -> dict[str, list[str]]:
-    """アセット(ライブラリ) → 使用カット の対応表。bpy不要で全端末分を集計。"""
-    root = resolve_root(root_str)
-    ddir = root.joinpath(*DEPS_DIR)
-    usage: dict[str, list[str]] = {}
-    if not ddir.is_dir():
-        return usage
-    for f in sorted(ddir.iterdir()):
-        m = _DEPS_FILE_RE.match(f.name)
-        if not m:
-            continue
-        try:
-            d = json.loads(f.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            continue
-        cut_label = f"{m.group(1)}/{m.group(2)}"
-        for lib in d.get("libraries", []):
-            usage.setdefault(lib, []).append(cut_label)
-    return usage
+    """アセット(ライブラリ) → 使用カット の対応表。全端末分をまとめて集計。
+
+    実体は `assets.usage_index()`。読むだけの処理をbpy非依存の側に置いたので
+    (アセット一覧が同じ索引を使い、Blender無しでテストできる)、ここは
+    記録側(`record_deps`)と対になる名前を残すための委譲。
+    """
+    return assets.usage_index(root_str)

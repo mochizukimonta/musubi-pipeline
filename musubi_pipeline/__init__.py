@@ -21,7 +21,7 @@
 bl_info = {
     "name": "Musubi Pipeline",
     "author": "mochizukimonta",
-    "version": (0, 30, 2),
+    "version": (0, 31, 0),
     "blender": (4, 2, 0),
     "location": "3D Viewport > Sidebar > Musubi",
     "description": "チーム制作パイプライン(フォルダ構造・カット管理・同期検証)",
@@ -31,8 +31,8 @@ bl_info = {
 # core / sync はBlender外(検証スクリプト等)でも使えるようにする
 try:
     import bpy
-    from . import (ops, project_ops, quality_ops, reel, review_ops, spec_ops,
-                   st_ops, task_ops, ui, ver_ops)
+    from . import (asset_ops, ops, project_ops, quality_ops, reel, review_ops,
+                   spec_ops, st_ops, task_ops, ui, ver_ops)
 except ModuleNotFoundError:  # Blender外での import(bpyなし)
     bpy = None
 
@@ -108,6 +108,19 @@ def _scene_props():
     # WindowManager なので .blend を汚さず、Blenderを閉じれば消える
     bpy.types.WindowManager.musubi_restored_label = bpy.props.StringProperty(
         default="")
+    # アセット一覧(カット以外の.blend)。一覧はディスク走査の結果なので
+    # .blend には保存しない(WindowManager)
+    bpy.types.WindowManager.musubi_assets = bpy.props.CollectionProperty(
+        type=asset_ops.MusubiAssetItem)
+    bpy.types.WindowManager.musubi_assets_index = bpy.props.IntProperty(
+        default=0,
+        # 件数が上限を超えたときだけ、選択された1件のサムネイルをここで読む。
+        # 選択の変更は「押した時」なので、draw からのI/O禁止には触れない
+        update=asset_ops.on_index_update)
+    bpy.types.WindowManager.musubi_assets_summary = bpy.props.StringProperty(
+        default="")
+    bpy.types.WindowManager.musubi_assets_over_limit = bpy.props.BoolProperty(
+        default=False)
     bpy.types.WindowManager.musubi_board = bpy.props.CollectionProperty(
         type=task_ops.MusubiBoardItem)
     bpy.types.WindowManager.musubi_board_index = bpy.props.IntProperty(
@@ -150,6 +163,8 @@ def _del_scene_props():
                  "musubi_versions",
                  "musubi_versions_index", "musubi_versions_summary",
                  "musubi_versions_no_thumb", "musubi_restored_label",
+                 "musubi_assets", "musubi_assets_index",
+                 "musubi_assets_summary", "musubi_assets_over_limit",
                  "musubi_board", "musubi_board_index", "musubi_board_summary",
                  "musubi_board_filter", "musubi_reviews",
                  "musubi_reviews_index", "musubi_qc_report",
@@ -161,13 +176,15 @@ def _del_scene_props():
 
 def register():
     # PropertyGroupを先に登録してからプロパティを定義する
-    for cls in (ver_ops.CLASSES + task_ops.CLASSES + review_ops.CLASSES
-                + quality_ops.CLASSES + reel.CLASSES + spec_ops.CLASSES
-                + ops.CLASSES + project_ops.CLASSES + st_ops.CLASSES
-                + ui.CLASSES):
+    for cls in (ver_ops.CLASSES + asset_ops.CLASSES + task_ops.CLASSES
+                + review_ops.CLASSES + quality_ops.CLASSES + reel.CLASSES
+                + spec_ops.CLASSES + ops.CLASSES + project_ops.CLASSES
+                + st_ops.CLASSES + ui.CLASSES):
         bpy.utils.register_class(cls)
     _scene_props()
     ver_ops.preview_register()  # 世代サムネイル用(アドオンごとに1つ)
+    # アセット一覧のサムネイルは寿命が違うので別のコレクションで持つ
+    asset_ops.preview_register()
     # すでにルートが入ったファイルを開いた状態で有効化された場合、それを
     # 履歴の種にする(旧版からの更新直後に一覧が空にならないように)
     try:
@@ -209,8 +226,9 @@ def unregister():
     atexit.unregister(ops._release_current_lock)
     # サムネイルのアイコンを解放する(再読込のたびに溜めない)
     ver_ops.preview_unregister()
+    asset_ops.preview_unregister()
     _del_scene_props()
-    for cls in reversed(ver_ops.CLASSES + task_ops.CLASSES
+    for cls in reversed(ver_ops.CLASSES + asset_ops.CLASSES + task_ops.CLASSES
                         + review_ops.CLASSES + quality_ops.CLASSES
                         + reel.CLASSES + spec_ops.CLASSES + ops.CLASSES
                         + project_ops.CLASSES + st_ops.CLASSES + ui.CLASSES):
