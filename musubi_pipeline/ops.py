@@ -52,7 +52,9 @@ _suppress_auto = False   # 専用オペレーター経由の保存では二重�
 _snap_lock = threading.Lock()  # スナップショットのコピーを直列化
 
 
-_THROTTLE_S = 600  # 自動履歴の最短間隔(秒)。Ctrl+S連打で世代が無限に増えるのを防ぐ
+# 自動履歴の最短間隔(秒)。Ctrl+S連打で世代が無限に増えるのを防ぐ。
+# 世代数だけでなく同期量も抑える仕組みで、サーバーを持たないP2P同期の前提。
+_THROTTLE_S = 600
 
 
 def _snapshot_bg(root_str: str, path_str: str, comment: str,
@@ -61,7 +63,14 @@ def _snapshot_bg(root_str: str, path_str: str, comment: str,
 
     Blenderは内容が同じでも保存のたびにバイト列が変わり、ハッシュの重複排除が
     効かない。そのため自動記録は「新しいコメントが付いたら即」「それ以外は
-    _THROTTLE_S 間隔」でまとめる(手動のスナップショットボタンは常に記録)。
+    _THROTTLE_S 間隔で間引く」とする(手動のスナップショットボタンは常に記録)。
+
+    間引きは「まとめる」ではない。直前の世代から _THROTTLE_S 以内の無記入
+    保存は、記録を作らずにそのまま捨てる。次に世代ができるのは、直前の世代
+    から _THROTTLE_S を過ぎたあとの最初の保存。作業ファイル自体は毎回
+    保存されるので作業内容は失われないが、その間の状態は世代として残らない。
+    節目を確実に残したいときはコメントを書いて保存する(上の即記録に乗る)。
+
     max_bytes>0 なら記録後に履歴の合計サイズ上限で自動整理する。
     """
     from . import versions
@@ -72,7 +81,8 @@ def _snapshot_bg(root_str: str, path_str: str, comment: str,
             if items:
                 m = items[0]["meta"]
                 # 「空でない新しいコメント」だけが節目=即記録。
-                # 空欄・同一コメントの連続保存は一定間隔にまとめる
+                # 空欄・同一コメントの連続保存は、直前の世代から
+                # _THROTTLE_S 以内なら記録を作らずに捨てる(下の return)
                 new_comment = bool(comment) \
                     and comment != (m.get("comment") or "")
                 try:
