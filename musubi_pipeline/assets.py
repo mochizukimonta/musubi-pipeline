@@ -128,6 +128,27 @@ def format_age(seconds: float) -> str:
     return f"{int(days / 365)}年前"
 
 
+def filter_rows(rows: list[dict], query: str) -> list[dict]:
+    """絞り込み(空欄なら全件)。空白区切りの語を**すべて**含む行を残す。
+
+    照合先はファイル名(相対パス)・作者・コメント。コメントを合図に使う
+    運用なので、「リグ待ち」で引けることに意味がある。
+
+    **大文字小文字を無視するのは「人が打った文字の検索」だから**で、
+    `usage_key()` のパス同一判定とは別の話。あちらは OS の流儀に従う
+    必要があるが(Linux では別ファイル)、こちらは全 OS で無視してよい。
+    """
+    terms = (query or "").lower().split()
+    if not terms:
+        return list(rows)
+    out = []
+    for r in rows:
+        hay = f"{r['rel']} {r['author']} {r['comment']}".lower()
+        if all(t in hay for t in terms):
+            out.append(r)
+    return out
+
+
 def _text(meta: dict, key: str, limit: int = 200) -> str:
     """サイドカーの項目を表示用の文字列にする。
 

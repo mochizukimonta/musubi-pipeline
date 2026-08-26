@@ -300,6 +300,76 @@ def test_future_timestamp_is_not_shown_as_negative():
     assert assets.format_age(-500) == "たった今"
 
 
+# --- 絞り込み(ポップアップの検索欄) ---------------------------------------
+
+def _rows_for_filter():
+    return [
+        {"rel": "assets/char/akane_body.blend", "author": "mochizuki",
+         "comment": "モデル完了・リグ待ち"},
+        {"rel": "assets/char/akane_hair.blend", "author": "sato",
+         "comment": "毛先の房を追加"},
+        {"rel": "assets/bg/room_kitchen.blend", "author": "mochizuki",
+         "comment": ""},
+    ]
+
+
+def test_empty_query_keeps_everything():
+    rows = _rows_for_filter()
+    assert len(assets.filter_rows(rows, "")) == 3
+    assert len(assets.filter_rows(rows, "   ")) == 3
+    assert len(assets.filter_rows(rows, None)) == 3
+
+
+def test_filter_matches_the_file_name():
+    rows = _rows_for_filter()
+    got = assets.filter_rows(rows, "akane")
+    assert [r["rel"] for r in got] == ["assets/char/akane_body.blend",
+                                       "assets/char/akane_hair.blend"]
+
+
+def test_filter_matches_the_folder_too():
+    """フォルダで絞れると「背景だけ見たい」が1語で済む。"""
+    rows = _rows_for_filter()
+    assert len(assets.filter_rows(rows, "bg/")) == 1
+
+
+def test_filter_matches_comment_and_author():
+    """コメントは受け渡しの合図なので、そこを引けることに意味がある。"""
+    rows = _rows_for_filter()
+    assert len(assets.filter_rows(rows, "リグ待ち")) == 1
+    assert len(assets.filter_rows(rows, "sato")) == 1
+
+
+def test_filter_terms_are_and_not_or():
+    rows = _rows_for_filter()
+    assert len(assets.filter_rows(rows, "akane mochizuki")) == 1
+    assert len(assets.filter_rows(rows, "akane 存在しない")) == 0
+
+
+def test_filter_ignores_case_on_every_os():
+    """これは文字の検索であって、パスの同一判定ではない。
+
+    `usage_key()` は OS の流儀に従う必要があるが(Linux では
+    Akane.blend と akane.blend は別物)、人が打った文字の照合は
+    どの OS でも大文字小文字を無視してよい。
+    """
+    rows = _rows_for_filter()
+    assert len(assets.filter_rows(rows, "AKANE")) == 2
+    assert len(assets.filter_rows(rows, "MoChIzUkI")) == 2
+
+
+def test_filter_does_not_mutate_the_input():
+    rows = _rows_for_filter()
+    assets.filter_rows(rows, "akane")
+    assert len(rows) == 3
+
+
+def test_filter_result_is_a_new_list():
+    """呼び出し側がキャッシュを持つので、同じリストを返してはいけない。"""
+    rows = _rows_for_filter()
+    assert assets.filter_rows(rows, "") is not rows
+
+
 # --- ルートの扱い -----------------------------------------------------------
 
 def test_scan_rejects_missing_root(tmp_path):

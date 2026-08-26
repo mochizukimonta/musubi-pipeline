@@ -21,7 +21,7 @@
 bl_info = {
     "name": "Musubi Pipeline",
     "author": "mochizukimonta",
-    "version": (0, 31, 0),
+    "version": (0, 32, 0),
     "blender": (4, 2, 0),
     "location": "3D Viewport > Sidebar > Musubi",
     "description": "チーム制作パイプライン(フォルダ構造・カット管理・同期検証)",
@@ -121,6 +121,19 @@ def _scene_props():
         default="")
     bpy.types.WindowManager.musubi_assets_over_limit = bpy.props.BoolProperty(
         default=False)
+    # 絞り込みは走査結果を読み直すだけ(ディスクには触れない)。
+    # WindowManager なので、次に一覧を開いたときも打った文字が残る
+    bpy.types.WindowManager.musubi_assets_filter = bpy.props.StringProperty(
+        name="絞り込み", default="",
+        description="ファイル名・作者・コメントに含まれる文字で絞り込む"
+                    "(空白区切りで複数指定)",
+        options={'TEXTEDIT_UPDATE'},
+        update=asset_ops.on_filter_update)
+    # グリッド(絵で探す)とリスト(更新・作者・コメントを文字で追う)の
+    # 切り替え。グリッドのセルには文字がほとんど入らないため両方を残す
+    bpy.types.WindowManager.musubi_assets_grid = bpy.props.BoolProperty(
+        name="サムネイル表示", default=True,
+        description="サムネイルのグリッドと、文字の一覧を切り替える")
     bpy.types.WindowManager.musubi_board = bpy.props.CollectionProperty(
         type=task_ops.MusubiBoardItem)
     bpy.types.WindowManager.musubi_board_index = bpy.props.IntProperty(
@@ -165,6 +178,7 @@ def _del_scene_props():
                  "musubi_versions_no_thumb", "musubi_restored_label",
                  "musubi_assets", "musubi_assets_index",
                  "musubi_assets_summary", "musubi_assets_over_limit",
+                 "musubi_assets_filter", "musubi_assets_grid",
                  "musubi_board", "musubi_board_index", "musubi_board_summary",
                  "musubi_board_filter", "musubi_reviews",
                  "musubi_reviews_index", "musubi_qc_report",

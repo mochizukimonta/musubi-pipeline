@@ -8,19 +8,23 @@
 2. プロジェクト仕様    — チームで共有する設定値
 3. 品質チェック        — ファイルの健康状態(映像でもアセット制作でも使う)
 4. バージョン管理      — 全テンプレート共通(アセットの.blendにも効く)
-5. アセット一覧        — カット以外の.blendの状態を、開かずに一覧する(v0.31)
-6. 映像制作(制作進行) — カット作業/進行ボード/レビューのサブパネル群。
+5. 映像制作(制作進行) — カット作業/進行ボード/レビューのサブパネル群。
                           アセット制作ではグループごと折りたためる
-7. チーム同期          — 意図的に末尾固定(検証・セキュリティはサブパネル)
+6. チーム同期          — 意図的に末尾固定(検証・セキュリティはサブパネル)
+
+**アセット一覧はパネルではなくポップアップ**(v0.32でパネルから移した)。
+1〜6 はどれも「いま開いているファイル」の話だが、アセット一覧だけは対象が
+プロジェクト全体で参照スコープが1階層違う。同じ場所に並べると情報の階層が
+混ざるので、プロジェクトパネルのボタンから呼び出す形にしてある。
 
 各パネルは折りたたみ可能で、開閉状態はBlenderが記憶する。
 
 **ルートが未設定の間は 1 しか出ない**(v0.29)。ルート指定がこのアドオンの
-入口で、それが無ければ 2〜7 はどれも動かないため、選択肢を1つに絞って
+入口で、それが無ければ 2〜6 はどれも動かないため、選択肢を1つに絞って
 「まずここを設定する」を迷わせない。設定した瞬間に残りが現れる。
 
 プリファレンスの役割スイッチ(制作者/レビュアー)で表示範囲が変わる:
-レビュアーでは 2〜5 とカット作業を隠し、プロジェクト・進行ボード・
+レビュアーでは 2〜4 とカット作業を隠し、プロジェクト・進行ボード・
 レビュー・チーム同期だけを出す(確認と指示が中心の人向け)。
 """
 
@@ -483,8 +487,13 @@ class MUSUBI_PT_project(_MusubiPanel, bpy.types.Panel):
             row.menu("MUSUBI_MT_projects", text="別のプロジェクトを開く",
                      icon='FILE_FOLDER')
             if not reviewer:
+                # 「ルートを決める」の直後が「作業対象のファイルを開く」。
+                # 実際の作業の流れがその順なので、入口と次の一手を並べる
+                from . import asset_ops
+                asset_ops.draw_asset_button(layout, context)
                 # 構造の作成はルートが決まってからの操作。未設定時に出すと
-                # 押せてしまい、必ずエラーになる
+                # 押せてしまい、必ずエラーになる。セットアップ時にしか
+                # 使わないので、日常の導線より下に置く
                 layout.operator_menu_enum(
                     "musubi.create_structure", "template",
                     text="フォルダ構造を作成(テンプレート選択)",
@@ -598,31 +607,6 @@ class MUSUBI_PT_versions(_MusubiPanel, bpy.types.Panel):
                 row.label(text=f"上限 {prefs.history_max_gb:.1f}GB",
                           icon='INFO')
                 row.operator("musubi.versions_enforce_cap", text="今すぐ整理")
-
-
-class MUSUBI_PT_assets(_MusubiPanel, bpy.types.Panel):
-    """アセット(カット以外の .blend)の一覧。
-
-    バージョン管理の直後・映像制作の前に置く。アセット制作テンプレートでも
-    使うので「映像制作」のサブパネルにはしない(あちらは折りたたんで視界から
-    外せる作りで、その中に入れると一緒に消えてしまう)。
-
-    レビュアー表示では隠す(v0.24.0 の分類。確認と指示が中心の人には
-    プロジェクト・進行ボード・レビュー・チーム同期だけを出す)。
-    """
-    bl_idname = "MUSUBI_PT_assets"
-    bl_label = "アセット一覧"
-
-    @classmethod
-    def poll(cls, context):
-        return _has_root(context) and not _is_reviewer(context)
-
-    def draw_header(self, context):
-        self.layout.label(text="", icon='PACKAGE')
-
-    def draw(self, context):
-        from . import asset_ops
-        asset_ops.draw_assets_box(self.layout, context)
 
 
 class MUSUBI_PT_film(_MusubiPanel, bpy.types.Panel):
@@ -826,7 +810,6 @@ CLASSES = (
     MUSUBI_PT_spec,
     MUSUBI_PT_quality,
     MUSUBI_PT_versions,
-    MUSUBI_PT_assets,
     MUSUBI_PT_film,
     MUSUBI_PT_film_cut,
     MUSUBI_PT_film_board,
