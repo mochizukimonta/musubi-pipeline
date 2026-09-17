@@ -307,14 +307,22 @@ def _redraw_sidebars() -> None:
 
 
 def refresh_file_panels() -> None:
-    """バージョン一覧とレビュー一覧を、いま開いているファイルで埋め直す。
+    """バージョン一覧・レビュー・進行ボードを、いまの状態で埋め直す。
 
-    どちらも WindowManager 上のキャッシュで、誰かが埋めなければ空のまま
+    どれも WindowManager 上のキャッシュで、誰かが埋めなければ空のまま
     (v0.32 まではボタンを押すまで空で、しかもレビューは別カットのものが
     出ていた)。ファイルを開いたとき・保存が終わったときに呼ぶ。
-    ボタンは残す: 他端末から同期で届いた世代・コメントはここでは拾えない。
+    ボタンは残す: 他端末から同期で届いた世代・コメント・状態はここでは
+    拾えない。
+
+    **v0.34.0 で進行ボードも加えた。**ボードだけが「更新」を押すまで空で、
+    アニメーターは自分のカットを探す前に必ず1手を強いられていた。
+    保存時にも走るので、`on_save_post` の todo/retake → wip の自動遷移が
+    そのまま表に出る。3つのうちいちばん重い(カット数ぶんのステータス
+    ファイル・ロック・出力フォルダを読む)が、0.5秒後のタイマー上で走る
+    ので開く操作は待たされない。
     """
-    from . import review_ops, ver_ops
+    from . import review_ops, task_ops, ver_ops
     ctx = bpy.context
     try:
         ver_ops.refresh_list(ctx)
@@ -324,15 +332,21 @@ def refresh_file_panels() -> None:
         review_ops.refresh_reviews(ctx)
     except Exception:
         pass
+    try:
+        task_ops.refresh_board(ctx)
+    except Exception:
+        pass
     _redraw_sidebars()
 
 
 def clear_file_panels(wm) -> None:
-    """プロジェクト外へ移ったら両方の一覧を空にする(前のファイルの
-    履歴・別カットのレビューが残って見えないように)。I/O なし。"""
-    from . import review_ops, ver_ops
+    """プロジェクト外へ移ったら一覧を空にする(前のファイルの履歴・
+    別カットのレビュー・前のプロジェクトのボードが残らないように)。
+    I/O なし。"""
+    from . import review_ops, task_ops, ver_ops
     ver_ops.clear_list(wm)
     review_ops.clear_reviews(wm)
+    task_ops.clear_board(wm)
 
 
 def _refresh_panels_later(first_interval: float = 0.5) -> None:

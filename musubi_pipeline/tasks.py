@@ -95,6 +95,18 @@ def update_status(root_str: str, scene_no: int, cut_no: int,
     return data
 
 
+def _in_range(*numbers: int) -> bool:
+    r"""`scene_name` / `cut_name` が受け取れる番号か(1〜999)。
+
+    正規表現(`\d{2,3}`)は 0 を通すので、`scene00` というフォルダや
+    `.musubi/status/scene000_c000.json` が実際に作れてしまう。番号を
+    そのまま先へ渡すと `scene_name` が PipelineError を投げ、**1件の
+    おかしなファイルでボード全体が空になる**(同期で届いたものは
+    信頼しない、という他の箇所と同じ扱いにする)。
+    """
+    return all(1 <= n <= 999 for n in numbers)
+
+
 def _discover_cuts(root: Path) -> set[tuple[int, int]]:
     """scenes/ の実ファイルと status/ の予定エントリからカット全集合を得る。"""
     cuts: set[tuple[int, int]] = set()
@@ -105,15 +117,18 @@ def _discover_cuts(root: Path) -> set[tuple[int, int]]:
                 continue
             s_no = int(sdir.name.replace("scene", ""))
             for f in sdir.glob("c*.blend"):
-                if CUT_RE.match(f.stem):
+                if CUT_RE.match(f.stem) and _in_range(s_no, int(f.stem[1:])):
                     cuts.add((s_no, int(f.stem[1:])))
     status_dir = root.joinpath(*STATUS_DIR)
     if status_dir.is_dir():
         for f in status_dir.iterdir():
             m = _STATUS_FILE_RE.match(f.name)
-            if m:
-                cuts.add((int(m.group(1).replace("scene", "")),
-                          int(m.group(2)[1:])))
+            if not m:
+                continue
+            s_no = int(m.group(1).replace("scene", ""))
+            c_no = int(m.group(2)[1:])
+            if _in_range(s_no, c_no):
+                cuts.add((s_no, c_no))
     return cuts
 
 

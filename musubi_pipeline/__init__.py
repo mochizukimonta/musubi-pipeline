@@ -21,7 +21,7 @@
 bl_info = {
     "name": "Musubi Pipeline",
     "author": "mochizukimonta",
-    "version": (0, 33, 0),
+    "version": (0, 34, 0),
     "blender": (4, 2, 0),
     "location": "3D Viewport > Sidebar > Musubi",
     "description": "チーム制作パイプライン(フォルダ構造・カット管理・同期検証)",
@@ -112,10 +112,33 @@ def _scene_props():
     # WindowManager なので .blend を汚さず、Blenderを閉じれば消える
     bpy.types.WindowManager.musubi_restored_label = bpy.props.StringProperty(
         default="")
-    # アセット一覧(カット以外の.blend)。一覧はディスク走査の結果なので
-    # .blend には保存しない(WindowManager)
+    # 開くファイルの一覧(アセット / カット)。一覧はディスク走査の結果な
+    # ので .blend には保存しない(WindowManager)
     bpy.types.WindowManager.musubi_assets = bpy.props.CollectionProperty(
         type=asset_ops.MusubiAssetItem)
+    # 何の一覧を出すか。**切り替えると走査し直す**(対象そのものが変わり、
+    # サムネイルも別のファイル群になる)。押した時に1回だけ走るので、
+    # 再描画のたびに走る draw からのI/O禁止には触れない
+    bpy.types.WindowManager.musubi_assets_mode = bpy.props.EnumProperty(
+        name="一覧の対象",
+        items=[
+            ('ASSET', "アセット", "キャラ・背景・小道具など、カット以外の"
+                                  ".blend", 'PACKAGE', 0),
+            ('CUT', "カット", "scenes/sceneXX/cYY.blend。状態・担当・指示は"
+                              "進行ボードと同じ出所", 'SEQUENCE', 1),
+        ],
+        default='ASSET',
+        update=asset_ops.on_mode_update)
+    # 「自分の担当だけ」(カット表示のみ)。走査結果を読み直すだけなので
+    # ディスクには触れない
+    bpy.types.WindowManager.musubi_assets_mine = bpy.props.BoolProperty(
+        name="自分の担当だけ", default=False,
+        description="担当者がこのPCのログイン名と一致するカットだけを出す",
+        update=asset_ops.on_mine_update)
+    # 上の照合に使うログイン名。判定は走査時に1度だけ行い、UIは文字列を
+    # 出すだけにする(getpass はUI層から呼ばない)
+    bpy.types.WindowManager.musubi_assets_user = bpy.props.StringProperty(
+        default="")
     bpy.types.WindowManager.musubi_assets_index = bpy.props.IntProperty(
         default=0,
         # 件数が上限を超えたときだけ、選択された1件のサムネイルをここで読む。
@@ -195,6 +218,8 @@ def _del_scene_props():
                  "musubi_assets", "musubi_assets_index",
                  "musubi_assets_summary", "musubi_assets_over_limit",
                  "musubi_assets_filter", "musubi_assets_grid",
+                 "musubi_assets_mode", "musubi_assets_mine",
+                 "musubi_assets_user",
                  "musubi_board", "musubi_board_index", "musubi_board_summary",
                  "musubi_board_filter", "musubi_reviews",
                  "musubi_reviews_index", "musubi_reviews_target",

@@ -488,9 +488,13 @@ class MUSUBI_PT_project(_MusubiPanel, bpy.types.Panel):
                      icon='FILE_FOLDER')
             if not reviewer:
                 # 「ルートを決める」の直後が「作業対象のファイルを開く」。
-                # 実際の作業の流れがその順なので、入口と次の一手を並べる
+                # 実際の作業の流れがその順なので、入口と次の一手を並べる。
+                # 映像構成ではカット側の入口も同じ高さに並べる(アニメーター
+                # の「次に何を開くか」はアセット一覧の中には無い)
                 from . import asset_ops
-                asset_ops.draw_asset_button(layout, context)
+                asset_ops.draw_asset_button(
+                    layout, context,
+                    cuts=_is_film_project(sc.musubi_project_root))
                 # 構造の作成はルートが決まってからの操作。未設定時に出すと
                 # 押せてしまい、必ずエラーになる。セットアップ時にしか
                 # 使わないので、日常の導線より下に置く
@@ -691,7 +695,21 @@ class MUSUBI_PT_film_board(_MusubiPanel, bpy.types.Panel):
         row.operator("musubi.task_note", text="指示", icon='TEXT')
         row = layout.row(align=True)
         row.operator("musubi.task_add_cut", icon='ADD')
-        row.operator("musubi.task_open_cut", text="開く", icon='FILE_BLEND')
+        # 開く導線はアセット一覧と同じ musubi.open_blend に一本化した
+        # (v0.34.0)。未保存の編集を先に保存し、確認画面にロックの状態を
+        # 出すのはあちらだけが持っていた。渡すパスは refresh_board が
+        # 各行に入れてあるので、ここでは組み立てない
+        idx = wm.musubi_board_index
+        sel = wm.musubi_board[idx] if 0 <= idx < len(wm.musubi_board) else None
+        sub = row.row(align=True)
+        sub.enabled = bool(sel and sel.exists)
+        op = sub.operator("musubi.open_blend", text="開く", icon='FILE_BLEND')
+        if sel:
+            op.rel = sel.rel
+        # ボードは管理の画面。絵で探して開きたいときは一覧へ送る
+        op = layout.operator("musubi.asset_list", text="カット一覧(絵で探す)",
+                             icon='IMGDISPLAY')
+        op.mode = 'CUT'
         layout.operator("musubi.board_html", icon='URL')
         layout.operator("musubi.render_reel", icon='SEQUENCE')
 

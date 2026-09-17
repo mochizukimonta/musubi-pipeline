@@ -7,6 +7,9 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import pytest
 
 from musubi_pipeline import sync, tasks
@@ -74,6 +77,37 @@ def test_board_discovers_from_blend_files(project):
     make_blend(project, scene="scene02", cut="c05")
     rows = tasks.board(project)
     assert any(r["scene"] == 2 and r["cut"] == 5 for r in rows)
+
+
+# --- 同期で届いたおかしなファイルでボードを落とさない ----------------------
+
+def _status_file(project: str, name: str, scene: int, cut: int) -> None:
+    d = Path(project) / ".musubi" / "status"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / name).write_text(
+        json.dumps({"format": 1, "scene": scene, "cut": cut, "status": "wip"}),
+        encoding="utf-8")
+
+
+def test_board_survives_a_zero_numbered_status_file(project):
+    r"""`scene000_c000.json` が1つ届いてもボードは空にならない。
+
+    ファイル名の正規表現(`\d{2,3}`)は 0 を通すが、`scene_name` は
+    1〜999 しか受け取らない。番号をそのまま渡すと PipelineError が
+    board() の外まで出て、**正しいカットまで1行も出なくなる**。
+    """
+    make_blend(project, scene="scene01", cut="c01")
+    _status_file(project, "scene000_c000.json", 0, 0)
+    rows = tasks.board(project)
+    assert [(r["scene"], r["cut"]) for r in rows] == [(1, 1)]
+
+
+def test_board_ignores_a_zero_numbered_blend(project):
+    """`scenes/scene00/c00.blend` も同じ(フォルダは手でも作れる)。"""
+    make_blend(project, scene="scene01", cut="c01")
+    make_blend(project, scene="scene00", cut="c00")
+    rows = tasks.board(project)
+    assert [(r["scene"], r["cut"]) for r in rows] == [(1, 1)]
 
 
 def test_summary_percentage(project):

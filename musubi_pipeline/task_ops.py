@@ -8,7 +8,7 @@ import getpass
 
 import bpy
 
-from . import tasks
+from . import assets, tasks
 from .core import PipelineError
 from .tasks import STATUSES
 
@@ -29,6 +29,11 @@ class MusubiBoardItem(bpy.types.PropertyGroup):
     cut_no: bpy.props.IntProperty()
     label: bpy.props.StringProperty()
     icon: bpy.props.StringProperty(default='NONE')
+    # 開く導線(musubi.open_blend)に渡すルート相対パスと、押せるかどうか。
+    # **走査時に確定させて UI は読むだけにする** — draw でパスを組み立てると
+    # 番号が範囲外のときに例外になり、パネル全体が描けなくなる
+    rel: bpy.props.StringProperty()
+    exists: bpy.props.BoolProperty(default=False)
 
 
 class MUSUBI_UL_board(bpy.types.UIList):
@@ -66,6 +71,11 @@ def refresh_board(context):
         item.scene_no, item.cut_no = r["scene"], r["cut"]
         item.label = "  ".join(parts)
         item.icon = STATUS_ICONS[r["status"]]
+        item.exists = bool(r["blend_exists"])
+        try:
+            item.rel = assets.cut_rel(r["scene"], r["cut"])
+        except PipelineError:
+            item.exists = False  # 番号が範囲外(手で置かれたステータス)
     c = s["counts"]
     wm.musubi_board_summary = (
         f"承認 {s['approved']}/{s['total']} ({s['percent']}%) | "
@@ -73,6 +83,17 @@ def refresh_board(context):
         f"未着手{c['todo']}")
     wm.musubi_board_index = min(wm.musubi_board_index,
                                max(0, len(wm.musubi_board) - 1))
+
+
+def clear_board(wm) -> None:
+    """ボードを空にする(プロジェクト外へ移ったとき)。I/O なし。
+
+    ボードはプロジェクト単位の表なので、プロジェクト外のファイルを開いた
+    まま前のプロジェクトの表が残っていると、そこから状態を変えられて
+    しまう(_selected は行があれば通る)。
+    """
+    wm.musubi_board.clear()
+    wm.musubi_board_summary = ""
 
 
 def export_html_quiet(context):
@@ -206,33 +227,15 @@ class MUSUBI_OT_task_add_cut(bpy.types.Operator):
         return {'FINISHED'}
 
 
-class MUSUBI_OT_task_open_cut(bpy.types.Operator):
-    """選択カットの.blendを開く(未保存の変更は失われるため確認あり)"""
-    bl_idname = "musubi.task_open_cut"
-    bl_label = "選択カットを開く"
-
-    def invoke(self, context, event):
-        return context.window_manager.invoke_confirm(self, event)
-
-    def execute(self, context):
-        from . import core
-        sc = context.scene
-        try:
-            s_no, c_no = _selected(context)
-            path = core.cut_blend_path(sc.musubi_project_root, s_no, c_no)
-            if not path.exists():
-                self.report({'ERROR'}, f"{path.name} はまだ作成されていません")
-                return {'CANCELLED'}
-            root = sc.musubi_project_root
-            bpy.ops.wm.open_mainfile(filepath=str(path))
-            sc2 = bpy.context.scene
-            sc2.musubi_project_root = root
-            sc2.musubi_scene_no, sc2.musubi_cut_no = s_no, c_no
-        except (PipelineError, RuntimeError) as e:
-            self.report({'ERROR'}, str(e))
-            return {'CANCELLED'}
-        refresh_board(bpy.context)
-        return {'FINISHED'}
+# **v0.34.0 で MUSUBI_OT_task_open_cut を廃止した。**
+# 「開く」はアセット一覧の musubi.open_blend に一本化されている。
+# あちらは (1) 未保存の編集を黙って捨てず先に保存し、(2) 確認画面に
+# ロックの説明と「誰がいつから作業中か」を出す。こちらは invoke_confirm
+# だけで、どちらも持っていなかった(v0.31.0 で「次の版で共用できる」と
+# 書いたまま残っていた宿題)。同じ操作で安全性が2段違うものを2つ置かない。
+#
+# 進行ボードの「開く」ボタンは musubi.open_blend を呼ぶ(ui.py)。
+# 渡すルート相対パスは refresh_board が MusubiBoardItem.rel に入れている。
 
 
 CLASSES = (
@@ -243,5 +246,4 @@ CLASSES = (
     MUSUBI_OT_task_assign,
     MUSUBI_OT_task_note,
     MUSUBI_OT_task_add_cut,
-    MUSUBI_OT_task_open_cut,
 )
