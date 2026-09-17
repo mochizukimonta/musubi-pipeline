@@ -87,6 +87,14 @@ class MUSUBI_OT_open_project(bpy.types.Operator):
             return {'CANCELLED'}
         _apply_root(context, str(root))
         remember(str(root))
+        # ルートが決まった時点で、開いているファイルの分類・進行ボード・
+        # 一覧を埋める(v0.35.0)。「前回のプロジェクトを開く」の直後に
+        # ファイルを開かなくても、要約と分類が見える
+        from . import ops
+        try:
+            ops.refresh_file_panels()
+        except Exception:
+            pass
         self.report({'INFO'}, f"プロジェクトを開きました: {projects.display_name(str(root))}")
         return {'FINISHED'}
 

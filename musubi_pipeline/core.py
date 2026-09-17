@@ -199,7 +199,12 @@ def parse_cut_path(root: Path, filepath: str) -> tuple[int, int] | None:
     if len(parts) == 3 and parts[0] == "scenes" \
             and SCENE_RE.match(parts[1]) and parts[2].endswith(".blend") \
             and CUT_RE.match(parts[2][:-6]):
-        return int(parts[1][5:]), int(parts[2][1:-6])
+        s_no, c_no = int(parts[1][5:]), int(parts[2][1:-6])
+        # 正規表現は scene00 / c000 を通すが scene_name / cut_name は通さない。
+        # ここで弾いておかないと、開いたファイルは「カット」なのに
+        # 進行ボードには出ない(v0.34.0 の _in_range と同じ範囲)
+        if 1 <= s_no <= 999 and 1 <= c_no <= 999:
+            return s_no, c_no
     return None
 
 
@@ -231,6 +236,88 @@ def read_project_info(root_str: str) -> dict:
         return data if isinstance(data, dict) else {}
     except (PipelineError, OSError, json.JSONDecodeError):
         return {}
+
+
+# --- 開いているファイルの分類(v0.35.0) ---
+# 判定は「置き場所の名前」だけ。ファイルの中身や Musubi の操作を通したか
+# どうかは見ない。作業者が Blender の Save As で scenes/scene01/c02.blend に
+# 置けばカットになり、名前をわずかに外す(C02 / c2 / c02_v2)と黙って
+# 外れる。その「黙って」を無くすために、分類の結果と外れた理由を返す。
+FILE_KINDS = ("unsaved", "outside", "cut", "asset", "scenes_misnamed", "other")
+
+_DIGITS_RE = re.compile(r"\d+")
+_CUT_DIGITS_RE = re.compile(r"[cC](\d+)")
+
+
+def suggest_cut_rel(parts: tuple[str, ...]) -> str | None:
+    """scenes/ 配下の外れた名前から、意図したらしい正しい相対パスを推定する。
+
+    例: ('scenes','Scene1','C02_v2.blend') → 'scenes/scene01/c02.blend'。
+    シーン側は最初の数字、カット側は c/C に続く数字(無ければ最初の数字)。
+    数字が取れない・範囲外なら None(呼び出し側は一般形を案内する)。
+    自動リネームには使わない — Musubi は黙ってファイルを動かさない。
+    """
+    if len(parts) < 3 or parts[0] != "scenes":
+        return None
+    name = parts[-1]
+    stem = name[:-6] if name.lower().endswith(".blend") else name
+    sm = _DIGITS_RE.search(parts[1])
+    cm = _CUT_DIGITS_RE.search(stem) or _DIGITS_RE.search(stem)
+    if not sm or not cm:
+        return None
+    s_no = int(sm.group(0))
+    c_no = int(cm.group(1) if cm.re is _CUT_DIGITS_RE else cm.group(0))
+    if not (1 <= s_no <= 999 and 1 <= c_no <= 999):
+        return None
+    return f"scenes/{scene_name(s_no)}/{cut_name(c_no)}.blend"
+
+
+def classify_file(root: Path | None, filepath: str) -> dict:
+    """開いているファイルが Musubi にとって何かを返す。
+
+    kind: unsaved(未保存) / outside(ルート外) / cut / asset /
+          scenes_misnamed(scenes 配下だがカットとして認識されない) / other
+    ほかに scene, cut(カットのとき)、category(assets/直下のフォルダ名)、
+    suggest(misnamed のとき推定した正しい相対パス、無ければ None)。
+    """
+    info = {"kind": "other", "scene": 0, "cut": 0, "category": "",
+            "suggest": None, "rel": ""}
+    if not filepath:
+        info["kind"] = "unsaved"
+        return info
+    if root is None:
+        info["kind"] = "outside"
+        return info
+    try:
+        rel = Path(filepath).resolve().relative_to(Path(root).resolve())
+    except (ValueError, OSError):
+        info["kind"] = "outside"
+        return info
+    parts = rel.parts
+    info["rel"] = "/".join(parts)
+    nums = parse_cut_path(root, filepath)
+    if nums:
+        info.update(kind="cut", scene=nums[0], cut=nums[1])
+    elif parts and parts[0] == "scenes":
+        info.update(kind="scenes_misnamed", suggest=suggest_cut_rel(parts))
+    elif parts and parts[0] == "assets":
+        info.update(kind="asset",
+                    category=parts[1] if len(parts) > 2 else "")
+    return info
+
+
+def file_kind_label(info: dict) -> str:
+    """パネルの「このファイル: …」に出す短い分類名(折り返せないので短く)。"""
+    k = info["kind"]
+    if k == "cut":
+        return f"カット s{info['scene']:02d}/c{info['cut']:02d}"
+    if k == "asset":
+        return (f"アセット assets/{info['category']}" if info["category"]
+                else "アセット")
+    return {"unsaved": "未保存の新規ファイル",
+            "outside": "プロジェクト外",
+            "scenes_misnamed": "scenes配下・カット未認識",
+            "other": "プロジェクト内・分類なし"}[k]
 
 
 def cut_blend_path(root_str: str, scene_no: int, cut_no: int) -> Path:

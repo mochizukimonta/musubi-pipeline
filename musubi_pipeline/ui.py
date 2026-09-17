@@ -46,6 +46,54 @@ def _is_reviewer(context) -> bool:
         return False
 
 
+_FILE_KIND_ICONS = {
+    "cut": 'SEQUENCE', "asset": 'OUTLINER_COLLECTION', "other": 'FILE_BLEND',
+    "unsaved": 'FILE_NEW', "outside": 'FILE_HIDDEN', "scenes_misnamed": 'ERROR',
+}
+
+
+def _non_cut_file_open(context) -> bool:
+    """プロジェクト内のカット以外のファイル(アセット・分類なし・カット未認識)
+    を開いているか。
+
+    v0.35.0: このときカット管理(カット作業・進行ボード・レビュー)の
+    サブパネルを隠す。進行ボードとレビューはデータがカットにしか付かない
+    ので、アセットを開いている人には操作するものが無く、表だけが見えて
+    混乱の元だった。未保存・プロジェクト外・カットのときは隠さない
+    (レビュアーも隠さない — 開いているファイルではなくボードで見る人)。
+    判定は WindowManager の文字列を見るだけ(I/O は ops.update_file_kind)。
+    """
+    try:
+        kind = context.window_manager.musubi_file_kind
+    except AttributeError:
+        return False
+    return kind in ("asset", "other", "scenes_misnamed")
+
+
+def _draw_file_kind(layout, context) -> None:
+    """「このファイル: カット s01/c02」の1行と、カット未認識のときの直し方。
+
+    判定は置き場所の名前だけで決まる(Musubi の操作を通したかは無関係)。
+    作業者に作法を覚えさせない代わりに、システム側の判断をここで見せる。
+    """
+    wm = context.window_manager
+    if not wm.musubi_file_kind_label:
+        return
+    kind = wm.musubi_file_kind
+    layout.label(text=f"このファイル: {wm.musubi_file_kind_label}",
+                 icon=_FILE_KIND_ICONS.get(kind, 'FILE_BLEND'))
+    if kind == "scenes_misnamed":
+        box = layout.box()
+        col = box.column(align=True)
+        col.alert = True
+        col.label(text="カットとして認識されません", icon='ERROR')
+        col.alert = False
+        fix = wm.musubi_file_kind_hint or "scenes/scene01/c01.blend"
+        col.label(text=f"→ {fix} の形に", icon='BLANK1')
+        col.label(text="(履歴とロックは効きます。", icon='BLANK1')
+        col.label(text="  進行ボード・レビューには出ません)", icon='BLANK1')
+
+
 def _has_root(context) -> bool:
     """ルートが設定されているか。
 
@@ -477,6 +525,7 @@ class MUSUBI_PT_project(_MusubiPanel, bpy.types.Panel):
             card = layout.box()
             _, label, icon = _project_flavor(sc.musubi_project_root)
             card.label(text=f"構成: {label}", icon=icon)
+            _draw_file_kind(card, context)
             if reviewer:
                 card.label(text="表示: レビュアー(変更はプリファレンス)",
                            icon='HIDE_OFF')
@@ -645,6 +694,14 @@ class MUSUBI_PT_film(_MusubiPanel, bpy.types.Panel):
             layout.label(text="このプロジェクトは映像構成ではありません",
                          icon='INFO')
             layout.label(text="(カット管理を使うと scenes/ を自動作成)")
+        elif _non_cut_file_open(context):
+            # カット以外を開いている人には要約だけ。全体を見たいときは
+            # HTML ボード(読むだけ・ブラウザ)へ送る
+            col = layout.column(align=True)
+            col.label(text="カット以外のファイルを開いているため、",
+                      icon='INFO')
+            col.label(text="カットの管理(ボード・レビュー)は隠しています")
+            layout.operator("musubi.board_html", icon='URL')
 
 
 class MUSUBI_PT_film_cut(_MusubiPanel, bpy.types.Panel):
@@ -654,8 +711,9 @@ class MUSUBI_PT_film_cut(_MusubiPanel, bpy.types.Panel):
 
     @classmethod
     def poll(cls, context):
-        # レビュアーはカットの配置保存・レンダリングをしない
-        return not _is_reviewer(context)
+        # レビュアーはカットの配置保存・レンダリングをしない。
+        # アセットを開いているときの「カットとして配置保存」は事故の元
+        return not _is_reviewer(context) and not _non_cut_file_open(context)
 
     def draw_header(self, context):
         self.layout.label(text="", icon='SEQUENCE')
@@ -675,7 +733,12 @@ class MUSUBI_PT_film_cut(_MusubiPanel, bpy.types.Panel):
 class MUSUBI_PT_film_board(_MusubiPanel, bpy.types.Panel):
     bl_idname = "MUSUBI_PT_film_board"
     bl_parent_id = "MUSUBI_PT_film"
-    bl_label = "進行ボード"
+    bl_label = "カット進行ボード"
+
+    @classmethod
+    def poll(cls, context):
+        # レビュアーは開いているファイルに関係なくボードで見る
+        return _is_reviewer(context) or not _non_cut_file_open(context)
 
     def draw_header(self, context):
         self.layout.label(text="", icon='PRESET')
@@ -722,7 +785,11 @@ class MUSUBI_PT_film_review(_MusubiPanel, bpy.types.Panel):
     """
     bl_idname = "MUSUBI_PT_film_review"
     bl_parent_id = "MUSUBI_PT_film"
-    bl_label = "レビュー"
+    bl_label = "カットのレビュー"
+
+    @classmethod
+    def poll(cls, context):
+        return _is_reviewer(context) or not _non_cut_file_open(context)
 
     def draw_header(self, context):
         self.layout.label(text="", icon='HIDE_OFF')

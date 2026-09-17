@@ -21,7 +21,7 @@
 bl_info = {
     "name": "Musubi Pipeline",
     "author": "mochizukimonta",
-    "version": (0, 34, 0),
+    "version": (0, 35, 0),
     "blender": (4, 2, 0),
     "location": "3D Viewport > Sidebar > Musubi",
     "description": "チーム制作パイプライン(フォルダ構造・カット管理・同期検証)",
@@ -187,6 +187,17 @@ def _scene_props():
         default="")
     bpy.types.WindowManager.musubi_reviews_note = bpy.props.StringProperty(
         default="")
+    # 開いているファイルの分類(v0.35.0)。「このファイル: カット s01/c02」の
+    # 表示と、カット以外を開いているときにカット管理のパネルを隠す判定に
+    # 使う。判定は ops.update_file_kind が行い、draw は文字列を見るだけ。
+    # kind は core.FILE_KINDS のいずれか("" は未判定)
+    bpy.types.WindowManager.musubi_file_kind = bpy.props.StringProperty(
+        default="")
+    bpy.types.WindowManager.musubi_file_kind_label = bpy.props.StringProperty(
+        default="")
+    # scenes 配下でカットとして認識されないとき、推定した正しい相対パス
+    bpy.types.WindowManager.musubi_file_kind_hint = bpy.props.StringProperty(
+        default="")
     bpy.types.WindowManager.musubi_qc_report = bpy.props.StringProperty(
         name="品質チェック結果", default="")
     bpy.types.WindowManager.musubi_spec_summary = bpy.props.StringProperty(
@@ -223,7 +234,8 @@ def _del_scene_props():
                  "musubi_board", "musubi_board_index", "musubi_board_summary",
                  "musubi_board_filter", "musubi_reviews",
                  "musubi_reviews_index", "musubi_reviews_target",
-                 "musubi_reviews_note", "musubi_qc_report",
+                 "musubi_reviews_note", "musubi_file_kind",
+                 "musubi_file_kind_label", "musubi_file_kind_hint", "musubi_qc_report",
                  "musubi_spec_summary", "musubi_spec_profiles",
                  "musubi_spec_show_final", "musubi_spec_show_preview"):
         if hasattr(bpy.types.WindowManager, attr):

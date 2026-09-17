@@ -306,6 +306,36 @@ def _redraw_sidebars() -> None:
         pass
 
 
+def update_file_kind(wm, root=None) -> dict:
+    """「このファイル: カット s01/c02」の表示を、いまのファイルで更新する。
+
+    分類は core.classify_file(置き場所の名前だけで決まる)。draw で
+    Path.resolve() を呼ばせないために、判定はここで1回だけ行い、結果を
+    WindowManager に置く。scenes 配下なのにカットとして認識されない
+    ファイルは kind='scenes_misnamed' になり、パネルが理由と直し方を出す。
+    """
+    fp = bpy.data.filepath
+    if root is None and fp:
+        root = core.detect_root(fp)
+    info = core.classify_file(root, fp)
+    if wm is not None:
+        try:
+            wm.musubi_file_kind = info["kind"]
+            wm.musubi_file_kind_label = core.file_kind_label(info)
+            wm.musubi_file_kind_hint = info["suggest"] or ""
+        except (AttributeError, TypeError):
+            pass
+    return info
+
+
+def _misnamed_message(info: dict) -> str:
+    fix = info["suggest"] or "scenes/scene01/c01.blend"
+    return (f"scenes 配下ですがカットとして認識されません。"
+            f"{fix} の形に置き直してください"
+            f"(このままでも履歴とロックは効きますが、"
+            f"進行ボード・レビューには出ません)")
+
+
 def refresh_file_panels() -> None:
     """バージョン一覧・レビュー・進行ボードを、いまの状態で埋め直す。
 
@@ -324,6 +354,10 @@ def refresh_file_panels() -> None:
     """
     from . import review_ops, task_ops, ver_ops
     ctx = bpy.context
+    try:
+        update_file_kind(getattr(ctx, "window_manager", None))
+    except Exception:
+        pass
     try:
         ver_ops.refresh_list(ctx)
     except Exception:
@@ -347,6 +381,10 @@ def clear_file_panels(wm) -> None:
     ver_ops.clear_list(wm)
     review_ops.clear_reviews(wm)
     task_ops.clear_board(wm)
+    try:
+        update_file_kind(wm)
+    except Exception:
+        pass
 
 
 def _refresh_panels_later(first_interval: float = 0.5) -> None:
@@ -445,6 +483,16 @@ def on_save_post(_a=None, _b=None):
             _release_current_lock()
             _set_lock_warning(getattr(bpy.context, "window_manager", None), "")
         return
+    # 分類を保存先に合わせる。scenes 配下なのにカットとして認識されない
+    # 名前(C02 / c2 / c02_v2 …)は、ここで言わないと黙って外れたままになる。
+    # 自動リネームはしない(Musubi は黙ってファイルを動かさない)
+    try:
+        info = update_file_kind(getattr(bpy.context, "window_manager", None),
+                                root)
+        if info["kind"] == "scenes_misnamed":
+            _warn_popup(_misnamed_message(info))
+    except Exception:
+        pass
     try:
         # 「保存はされている」ことをパネルに明示(履歴の10分ルールとの混同防止)
         bpy.context.window_manager.musubi_last_save_at = \

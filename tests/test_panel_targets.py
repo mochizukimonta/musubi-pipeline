@@ -63,3 +63,45 @@ def test_panels_show_their_target():
     src = _src("ui.py")
     assert "musubi_versions_target" in src
     assert "musubi_reviews_target" in src
+
+
+# --- v0.35.0: カット以外を開いているときはカット管理を隠す ---
+
+def test_cut_panels_hide_for_non_cut_files():
+    """カット作業・カット進行ボード・カットのレビューは、アセットなど
+    カット以外のファイルを開いているあいだ poll で隠れる。
+    レビュアーは開いているファイルに関係なく見える。"""
+    src = _src("ui.py")
+    for cls in ("MUSUBI_PT_film_cut", "MUSUBI_PT_film_board",
+                "MUSUBI_PT_film_review"):
+        body = src[src.index(f"class {cls}"):]
+        body = body[:body.index("def draw(")]
+        assert "_non_cut_file_open(context)" in body, cls
+    for cls in ("MUSUBI_PT_film_board", "MUSUBI_PT_film_review"):
+        body = src[src.index(f"class {cls}"):]
+        body = body[:body.index("def draw(")]
+        assert "_is_reviewer(context) or" in body, cls
+
+
+def test_panel_names_say_cut():
+    """進行ボードとレビューの名前に「カット」を含める(対象を名前で示す)。"""
+    src = _src("ui.py")
+    assert 'bl_label = "カット進行ボード"' in src
+    assert 'bl_label = "カットのレビュー"' in src
+
+
+def test_save_post_warns_on_misnamed_cut():
+    """scenes 配下でカットとして認識されない保存は、黙って外さず警告する。
+    自動リネームはしない。"""
+    src = _src("ops.py")
+    body = src[src.index("def on_save_post"):]
+    body = body[:body.index("\nclass ")]  # on_save_post 本体だけ
+    assert "scenes_misnamed" in body
+    assert "_warn_popup(_misnamed_message(" in body
+    assert "rename" not in body.lower()
+
+
+def test_file_kind_is_computed_outside_draw():
+    """分類の判定(Path.resolve を伴う)は draw ではなく ops 側で行う。"""
+    assert "classify_file(" not in _src("ui.py")
+    assert "classify_file(" in _src("ops.py")

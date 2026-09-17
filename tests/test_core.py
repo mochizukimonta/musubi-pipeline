@@ -169,3 +169,80 @@ def test_atomic_replace_gives_up_after_retries(tmp_path, monkeypatch):
     tmp.write_text("x")
     with pytest.raises(PermissionError):
         core.atomic_replace(tmp, tmp_path / "c.txt", retries=3, delay=0.001)
+
+
+# --- 開いているファイルの分類(v0.35.0) ---
+# 判定は置き場所の名前だけで、Musubi の操作を通したかどうかは見ない。
+# 作業者が Save As で置いた場合と、名前をわずかに外した場合の両方を固定する。
+
+def _proj(tmp_path):
+    (tmp_path / ".musubi").mkdir()
+    return tmp_path
+
+
+def _touch(root, rel):
+    p = root.joinpath(*rel.split("/"))
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_bytes(b"")
+    return str(p)
+
+
+@pytest.mark.parametrize("rel,kind,scene,cut", [
+    ("scenes/scene01/c02.blend", "cut", 1, 2),
+    ("scenes/scene120/c003.blend", "cut", 120, 3),
+])
+def test_classify_plain_save_as_is_a_cut(tmp_path, rel, kind, scene, cut):
+    """「カットとして配置保存」を通さず Save As で置いてもカット。"""
+    root = _proj(tmp_path)
+    info = core.classify_file(root, _touch(root, rel))
+    assert (info["kind"], info["scene"], info["cut"]) == (kind, scene, cut)
+    assert core.file_kind_label(info) == f"カット s{scene:02d}/c{cut:02d}"
+
+
+@pytest.mark.parametrize("rel,suggest", [
+    ("scenes/scene01/C02.blend", "scenes/scene01/c02.blend"),      # 大文字
+    ("scenes/scene01/c2.blend", "scenes/scene01/c02.blend"),       # 桁不足
+    ("scenes/scene01/c02_v2.blend", "scenes/scene01/c02.blend"),   # 版番号付き
+    ("scenes/scene01/c02 (1).blend", "scenes/scene01/c02.blend"),  # 複製
+    ("scenes/Scene1/c02.blend", "scenes/scene01/c02.blend"),       # シーン側
+    ("scenes/scene01/sub/c03.blend", "scenes/scene01/c03.blend"),  # 深すぎ
+    ("scenes/scene01/bg.blend", None),                             # 数字なし
+    ("scenes/scene00/c01.blend", None),                            # 範囲外
+])
+def test_classify_scenes_misnamed_with_suggestion(tmp_path, rel, suggest):
+    """scenes 配下で名前を外すと黙って外れる — その理由と直し方を返す。"""
+    root = _proj(tmp_path)
+    info = core.classify_file(root, _touch(root, rel))
+    assert info["kind"] == "scenes_misnamed"
+    assert info["suggest"] == suggest
+    assert core.file_kind_label(info) == "scenes配下・カット未認識"
+
+
+def test_classify_asset_and_other(tmp_path):
+    root = _proj(tmp_path)
+    a = core.classify_file(root, _touch(root, "assets/bg/room.blend"))
+    assert (a["kind"], a["category"]) == ("asset", "bg")
+    assert core.file_kind_label(a) == "アセット assets/bg"
+    flat = core.classify_file(root, _touch(root, "assets/room.blend"))
+    assert (flat["kind"], flat["category"]) == ("asset", "")
+    o = core.classify_file(root, _touch(root, "misc/test.blend"))
+    assert o["kind"] == "other"
+
+
+def test_classify_unsaved_and_outside(tmp_path):
+    root = _proj(tmp_path)
+    assert core.classify_file(root, "")["kind"] == "unsaved"
+    assert core.classify_file(None, str(tmp_path / "x.blend"))["kind"] == "outside"
+    elsewhere = tmp_path.parent / f"{tmp_path.name}_out" / "x.blend"
+    elsewhere.parent.mkdir(exist_ok=True)
+    elsewhere.write_bytes(b"")
+    assert core.classify_file(root, str(elsewhere))["kind"] == "outside"
+
+
+def test_classify_matches_parse_cut_path(tmp_path):
+    """分類の cut 判定は parse_cut_path と同じ(2つの判定を持たない)。"""
+    root = _proj(tmp_path)
+    for rel in ("scenes/scene01/c02.blend", "scenes/scene01/c02_v2.blend"):
+        fp = _touch(root, rel)
+        assert (core.classify_file(root, fp)["kind"] == "cut") \
+            == (core.parse_cut_path(root, fp) is not None)
