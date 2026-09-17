@@ -293,6 +293,88 @@ class MUSUBI_OT_lock_alert(bpy.types.Operator):
         return {'FINISHED'}
 
 
+# --- 開いているファイルに追従するパネル(バージョン一覧・レビュー)の自動更新 ---
+
+def _redraw_sidebars() -> None:
+    """3Dビューを再描画する(タイマーからの更新は自動では画面に出ない)。"""
+    try:
+        for win in bpy.context.window_manager.windows:
+            for area in win.screen.areas:
+                if area.type == 'VIEW_3D':
+                    area.tag_redraw()
+    except Exception:
+        pass
+
+
+def refresh_file_panels() -> None:
+    """バージョン一覧とレビュー一覧を、いま開いているファイルで埋め直す。
+
+    どちらも WindowManager 上のキャッシュで、誰かが埋めなければ空のまま
+    (v0.32 まではボタンを押すまで空で、しかもレビューは別カットのものが
+    出ていた)。ファイルを開いたとき・保存が終わったときに呼ぶ。
+    ボタンは残す: 他端末から同期で届いた世代・コメントはここでは拾えない。
+    """
+    from . import review_ops, ver_ops
+    ctx = bpy.context
+    try:
+        ver_ops.refresh_list(ctx)
+    except Exception:
+        pass
+    try:
+        review_ops.refresh_reviews(ctx)
+    except Exception:
+        pass
+    _redraw_sidebars()
+
+
+def clear_file_panels(wm) -> None:
+    """プロジェクト外へ移ったら両方の一覧を空にする(前のファイルの
+    履歴・別カットのレビューが残って見えないように)。I/O なし。"""
+    from . import review_ops, ver_ops
+    ver_ops.clear_list(wm)
+    review_ops.clear_reviews(wm)
+
+
+def _refresh_panels_later(first_interval: float = 0.5) -> None:
+    """少し遅らせて更新する(ロック警告と同じ流儀)。
+
+    load_post の中では context が限定的で、st_ops 側のルート自動判別も
+    同じタイミングで走る。開く動作を1ミリ秒も遅らせないためにも
+    タイマーに乗せる(履歴20世代分の JSON とサムネイルを読む)。
+    """
+    if bpy.app.background:
+        return
+
+    def _fire():
+        refresh_file_panels()
+        return None
+    try:
+        bpy.app.timers.register(_fire, first_interval=first_interval)
+    except Exception:
+        pass
+
+
+def _refresh_panels_when_done(thread: threading.Thread) -> None:
+    """保存時のスナップショット(別スレッド)が終わったら一覧を更新する。
+
+    終わる前に読むと、いま作られた世代が一覧に無い。0.5秒おきに終了を
+    見て、終わった時点で1回だけ更新する(間引かれて世代ができなかった
+    場合も、対象ファイル名の表示を保存先に合わせるため更新する)。
+    """
+    if bpy.app.background:
+        return
+
+    def _tick():
+        if thread.is_alive():
+            return 0.5
+        refresh_file_panels()
+        return None
+    try:
+        bpy.app.timers.register(_tick, first_interval=0.5)
+    except Exception:
+        pass
+
+
 @persistent
 def on_load_post(_a=None, _b=None):
     """ファイルを開いた瞬間にロックを確認・取得する(開いた人=作業中)。
@@ -300,6 +382,7 @@ def on_load_post(_a=None, _b=None):
     他端末が保持中なら「保存する前に」ダイアログとパネルで警告する
     (保存後の警告では上書きしてからになり遅い)。プロジェクト外へ
     移ったときは、前のファイルの自分のロックを自動で返す。
+    バージョン一覧・レビューもこのファイルのものに更新する(v0.33.0)。
     """
     global _our_lock
     fp = bpy.data.filepath
@@ -321,10 +404,13 @@ def on_load_post(_a=None, _b=None):
                 pass
             _our_lock = None
         _set_lock_warning(wm, "")
+        clear_file_panels(wm)
         return
     msg = _sync_lock_state(root, fp, wm)
     if msg:
         _alert_later(msg)
+    # 開いた瞬間にバージョン一覧・レビューをこのファイルのものにする
+    _refresh_panels_later()
 
 
 @persistent
@@ -366,9 +452,13 @@ def on_save_post(_a=None, _b=None):
         max_bytes = pref_history_max_bytes()
     except Exception:
         max_bytes = 0
-    threading.Thread(target=_snapshot_bg,
-                     args=(str(root), fp, comment, max_bytes),
-                     daemon=True, name="musubi-auto-snapshot").start()
+    snap = threading.Thread(target=_snapshot_bg,
+                            args=(str(root), fp, comment, max_bytes),
+                            daemon=True, name="musubi-auto-snapshot")
+    snap.start()
+    # 世代ができたら一覧に出す(バージョン管理パネルが保存後も古いままに
+    # ならないように)
+    _refresh_panels_when_done(snap)
     if wm is not None and comment:
         # コメントは今回の記録(または直前世代)に反映済み。次の保存へ
         # 持ち越さないよう空欄へ戻す(WMプロパティなのでファイルは汚れない)

@@ -567,6 +567,11 @@ class MUSUBI_PT_versions(_MusubiPanel, bpy.types.Panel):
         col.label(text="残したい状態はコメントを書いて保存")
         layout.prop(wm, "musubi_version_comment", text="コメント")
         layout.operator("musubi.snapshot", icon='FILE_TICK')
+        # 一覧がどのファイルの履歴かを明示する。一覧は開いたとき・保存後に
+        # 自動更新されるが、対象名が見えていれば古い表示にも気づける
+        if wm.musubi_versions_target:
+            layout.label(text=f"対象: {wm.musubi_versions_target}",
+                         icon='FILE_BLEND')
         row = layout.row()
         row.template_list("MUSUBI_UL_versions", "", wm, "musubi_versions",
                           wm, "musubi_versions_index", rows=4)
@@ -692,9 +697,14 @@ class MUSUBI_PT_film_board(_MusubiPanel, bpy.types.Panel):
 
 
 class MUSUBI_PT_film_review(_MusubiPanel, bpy.types.Panel):
+    """対象は「いま開いているカット」、カット以外を開いているときだけ
+    「ボードで選択中のカット」(review_ops.review_target)。対象名を先頭に
+    必ず出す。v0.32 までは対象が書かれておらず、背景モデラーの画面に
+    s01/c01 のリテイク指示が出ていた。
+    """
     bl_idname = "MUSUBI_PT_film_review"
     bl_parent_id = "MUSUBI_PT_film"
-    bl_label = "レビュー(選択カット)"
+    bl_label = "レビュー"
 
     def draw_header(self, context):
         self.layout.label(text="", icon='HIDE_OFF')
@@ -702,8 +712,21 @@ class MUSUBI_PT_film_review(_MusubiPanel, bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         wm = context.window_manager
-        layout.template_list("MUSUBI_UL_reviews", "", wm, "musubi_reviews",
-                             wm, "musubi_reviews_index", rows=3)
+        if wm.musubi_reviews_target:
+            layout.label(text=f"対象: {wm.musubi_reviews_target}",
+                         icon='SEQUENCE')
+            layout.template_list("MUSUBI_UL_reviews", "", wm,
+                                 "musubi_reviews", wm,
+                                 "musubi_reviews_index", rows=3)
+        else:
+            # 対象が無いときは空の一覧を出さず、理由と次の一手だけを出す
+            col = layout.column(align=True)
+            if wm.musubi_reviews_note:
+                col.label(text=wm.musubi_reviews_note, icon='INFO')
+                col.label(text="(レビューはカット単位です)")
+            else:
+                col.label(text="対象のカットがありません", icon='INFO')
+            col.label(text="カットを開くか、ボードで選択")
         row = layout.row(align=True)
         row.operator("musubi.review_add", text="コメント追加", icon='ADD')
         row.operator("musubi.review_refresh", text="", icon='FILE_REFRESH')

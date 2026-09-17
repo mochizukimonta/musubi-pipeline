@@ -21,7 +21,7 @@
 bl_info = {
     "name": "Musubi Pipeline",
     "author": "mochizukimonta",
-    "version": (0, 32, 0),
+    "version": (0, 33, 0),
     "blender": (4, 2, 0),
     "location": "3D Viewport > Sidebar > Musubi",
     "description": "チーム制作パイプライン(フォルダ構造・カット管理・同期検証)",
@@ -100,6 +100,10 @@ def _scene_props():
         default=0)
     bpy.types.WindowManager.musubi_versions_summary = bpy.props.StringProperty(
         default="")
+    # 一覧がどのファイルの履歴かを一覧の上に出す(開いているファイルと
+    # 一覧の対象が食い違って見える誤解を防ぐ)
+    bpy.types.WindowManager.musubi_versions_target = bpy.props.StringProperty(
+        default="")
     # サムネイルが取れなかった世代があるか(注意表示の条件)。判定は
     # refresh_list が1度だけ行い、UIは真偽値を見るだけにする
     bpy.types.WindowManager.musubi_versions_no_thumb = bpy.props.BoolProperty(
@@ -137,7 +141,11 @@ def _scene_props():
     bpy.types.WindowManager.musubi_board = bpy.props.CollectionProperty(
         type=task_ops.MusubiBoardItem)
     bpy.types.WindowManager.musubi_board_index = bpy.props.IntProperty(
-        default=0)
+        default=0,
+        # ボードでカットを選び直したらレビュー一覧も追従させる(選択は
+        # 「押した時」なので、draw からのI/O禁止には触れない。読むのは
+        # そのカットのコメントフォルダ1つ)
+        update=lambda self, ctx: review_ops.refresh_reviews(ctx))
     bpy.types.WindowManager.musubi_board_summary = bpy.props.StringProperty(
         default="")
     bpy.types.WindowManager.musubi_board_filter = bpy.props.EnumProperty(
@@ -149,6 +157,13 @@ def _scene_props():
         type=review_ops.MusubiReviewItem)
     bpy.types.WindowManager.musubi_reviews_index = bpy.props.IntProperty(
         default=0)
+    # レビュー一覧の対象カット(「s01/c01(いま開いているカット)」)と、
+    # 対象が無いときの理由(「bg.blend はカットではありません」)。
+    # 判定は refresh_reviews が行い、UIは文字列を出すだけ(draw でI/Oしない)
+    bpy.types.WindowManager.musubi_reviews_target = bpy.props.StringProperty(
+        default="")
+    bpy.types.WindowManager.musubi_reviews_note = bpy.props.StringProperty(
+        default="")
     bpy.types.WindowManager.musubi_qc_report = bpy.props.StringProperty(
         name="品質チェック結果", default="")
     bpy.types.WindowManager.musubi_spec_summary = bpy.props.StringProperty(
@@ -175,13 +190,15 @@ def _del_scene_props():
                  "musubi_st_show_advanced", "musubi_show_other_projects",
                  "musubi_versions",
                  "musubi_versions_index", "musubi_versions_summary",
+                 "musubi_versions_target",
                  "musubi_versions_no_thumb", "musubi_restored_label",
                  "musubi_assets", "musubi_assets_index",
                  "musubi_assets_summary", "musubi_assets_over_limit",
                  "musubi_assets_filter", "musubi_assets_grid",
                  "musubi_board", "musubi_board_index", "musubi_board_summary",
                  "musubi_board_filter", "musubi_reviews",
-                 "musubi_reviews_index", "musubi_qc_report",
+                 "musubi_reviews_index", "musubi_reviews_target",
+                 "musubi_reviews_note", "musubi_qc_report",
                  "musubi_spec_summary", "musubi_spec_profiles",
                  "musubi_spec_show_final", "musubi_spec_show_preview"):
         if hasattr(bpy.types.WindowManager, attr):

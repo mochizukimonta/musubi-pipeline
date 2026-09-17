@@ -88,10 +88,33 @@ def _current_file(context) -> Path:
     return path
 
 
+def clear_list(wm) -> None:
+    """一覧を空にする(プロジェクト外のファイルへ移ったとき)。
+
+    前のファイルの履歴が残って見えるのは、空より悪い(別ファイルの世代を
+    復元してしまう)。I/O はしないので load_post から直接呼べる。
+    """
+    if wm is None:
+        return
+    try:
+        wm.musubi_versions.clear()
+        wm.musubi_versions_summary = ""
+        wm.musubi_versions_target = ""
+        wm.musubi_versions_no_thumb = False
+    except (AttributeError, TypeError):
+        pass
+
+
 def refresh_list(context):
     wm = context.window_manager
+    # 選択中の世代は、同じ世代が残っていれば選び直す。自動更新(開いた
+    # とき・保存後)のたびに先頭へ飛ぶと、復元直後に選んだ世代や、見比べて
+    # いた世代を見失う
+    prev = _selected_version(wm)
+    prev_name = prev.version_name if prev is not None else None
     wm.musubi_versions.clear()
     wm.musubi_versions_no_thumb = False
+    wm.musubi_versions_target = ""
     if _pcoll is not None:
         # サムネイルのキャッシュはここで必ず捨てる。この関数は
         # _current_file() の履歴しか読まないので、clear と load が常に対で
@@ -117,10 +140,17 @@ def refresh_list(context):
         if not row.icon_id:
             wm.musubi_versions_no_thumb = True
     cnt, total = versions.history_size(context.scene.musubi_project_root)
+    # 対象ファイル名は一覧の上に別行で出す(どのファイルの履歴かが常に
+    # 見えるように)。件数は下の要約行
+    wm.musubi_versions_target = path.name
     wm.musubi_versions_summary = (
-        f"{path.name}: {len(items)}世代 / プロジェクト全体 "
-        f"{cnt}件 {total/1e6:.1f}MB")
+        f"{len(items)}世代 / プロジェクト全体 {cnt}件 {total/1e6:.1f}MB")
     wm.musubi_versions_index = 0
+    if prev_name:
+        for i, row in enumerate(wm.musubi_versions):
+            if row.version_name == prev_name:
+                wm.musubi_versions_index = i
+                break
 
 
 class MUSUBI_OT_snapshot(bpy.types.Operator):
@@ -155,7 +185,8 @@ class MUSUBI_OT_snapshot(bpy.types.Operator):
 
 
 class MUSUBI_OT_versions_refresh(bpy.types.Operator):
-    """現在のファイルのバージョン一覧を更新"""
+    """バージョン一覧を読み直す(開いたとき・保存後は自動で更新される。
+他の端末から同期で届いた世代を拾うときに押す)"""
     bl_idname = "musubi.versions_refresh"
     bl_label = "一覧を更新"
 
@@ -172,8 +203,12 @@ def _selected_version(wm):
     return wm.musubi_versions[idx]
 
 
-def _cut_of_current_file(context):
-    """いま開いているファイルがカットなら (シーン番号, カット番号)。"""
+def current_cut(context):
+    """いま開いているファイルがカットなら (シーン番号, カット番号)。
+
+    レビュー対象の決定にも使う(review_ops)。カット以外(アセットなど)
+    なら None。
+    """
     try:
         root = core.resolve_root(context.scene.musubi_project_root)
     except PipelineError:
@@ -205,7 +240,7 @@ class MUSUBI_OT_version_restore(bpy.types.Operator):
         self.unsaved = bool(bpy.data.is_dirty)
         self.approved = False
         self.reset_status = False
-        nums = _cut_of_current_file(context)
+        nums = current_cut(context)
         if nums:
             try:
                 from . import tasks
@@ -239,7 +274,7 @@ class MUSUBI_OT_version_restore(bpy.types.Operator):
         # 一覧は復元後に作り直されるので、必要な値はここで取り出しておく
         version_name, label = item.version_name, item.label
         root = context.scene.musubi_project_root
-        nums = _cut_of_current_file(context)
+        nums = current_cut(context)
         ops_mod._suppress_auto = True  # 自動保存処理と二重にしない
         try:
             path = _current_file(context)

@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import bpy
 
-from . import board_html, reviews, task_ops, tasks
+from . import board_html, core, reviews, task_ops, tasks, ver_ops
 from .core import PipelineError
 from .reviews import VERDICTS
 
@@ -25,24 +25,89 @@ class MUSUBI_UL_reviews(bpy.types.UIList):
         layout.label(text=item.label, icon=item.icon or 'TEXT')
 
 
-def _target_cut(context) -> tuple[int, int]:
-    """ボードで選択中のカット(未選択ならシーン/カット番号プロパティ)。"""
+def review_target(context) -> tuple[int, int, str] | None:
+    """レビューの対象カット (シーン番号, カット番号, 由来)。
+
+    由来は 'file'(いま開いているファイルがそのカット)か 'board'(進行
+    ボードで選択中)。**開いているファイルがカットならそれを最優先**にする。
+    カット以外(アセットなど)を開いているときだけボードの選択を使い、
+    どちらも無ければ None。
+
+    シーン/カット番号プロパティへは戻らない。あの値はアセットを開いても
+    書き換わらず既定の 1/1 のままなので、背景モデラーの画面に s01/c01 の
+    レビューが出ていた(v0.33.0 で廃止)。
+    """
+    nums = ver_ops.current_cut(context)
+    if nums:
+        return nums[0], nums[1], "file"
     try:
-        return task_ops._selected(context)
+        s_no, c_no = task_ops._selected(context)
     except PipelineError:
-        sc = context.scene
-        return sc.musubi_scene_no, sc.musubi_cut_no
+        return None
+    return s_no, c_no, "board"
+
+
+def _target_cut(context) -> tuple[int, int]:
+    target = review_target(context)
+    if target is None:
+        raise PipelineError(
+            "レビュー対象のカットがありません"
+            "(カットのファイルを開くか、ボードでカットを選択)")
+    return target[0], target[1]
+
+
+def _target_label(target) -> str:
+    s_no, c_no, source = target
+    origin = "いま開いているカット" if source == "file" else "ボードで選択"
+    return f"s{s_no:02d}/c{c_no:02d}({origin})"
+
+
+def _non_cut_note(context) -> str:
+    """プロジェクト内のカット以外のファイルを開いているなら、その旨。
+
+    「なぜ空なのか」を1行で言う(ラベルは折り返せないので短く)。
+    """
+    fp = bpy.data.filepath
+    if not fp:
+        return ""
+    try:
+        core.resolve_root(context.scene.musubi_project_root)
+    except PipelineError:
+        return ""
+    if core.detect_root(fp) is None:
+        return ""
+    import os
+    return f"{os.path.basename(fp)[:22]} はカットではありません"
+
+
+def clear_reviews(wm) -> None:
+    """一覧を空にする(プロジェクト外のファイルへ移ったとき)。I/O なし。"""
+    if wm is None:
+        return
+    try:
+        wm.musubi_reviews.clear()
+        wm.musubi_reviews_target = ""
+        wm.musubi_reviews_note = ""
+    except (AttributeError, TypeError):
+        pass
 
 
 def refresh_reviews(context):
     wm = context.window_manager
     wm.musubi_reviews.clear()
+    wm.musubi_reviews_target = ""
+    wm.musubi_reviews_note = ""
+    target = review_target(context)
+    if target is None:
+        wm.musubi_reviews_note = _non_cut_note(context)
+        return
+    s_no, c_no, _source = target
     try:
-        s_no, c_no = _target_cut(context)
         items = reviews.list_comments(context.scene.musubi_project_root,
                                       s_no, c_no)
     except PipelineError:
         return
+    wm.musubi_reviews_target = _target_label(target)
     for c in items:
         frame = f" f{c['frame']}" if c.get("frame", -1) >= 0 else ""
         verdict = c.get("verdict", "comment")
@@ -56,8 +121,8 @@ def refresh_reviews(context):
 
 
 class MUSUBI_OT_review_add(bpy.types.Operator):
-    """選択カットの出力バージョンにレビューコメントを追加
-(判定リテイク/承認はステータスにも反映される)"""
+    """対象カット(開いているカット、またはボードで選択中)の出力バージョンに
+レビューコメントを追加(判定リテイク/承認はステータスにも反映される)"""
     bl_idname = "musubi.review_add"
     bl_label = "レビューコメントを追加"
 
@@ -112,7 +177,8 @@ class MUSUBI_OT_review_add(bpy.types.Operator):
 
 
 class MUSUBI_OT_review_refresh(bpy.types.Operator):
-    """選択カットのレビューコメント一覧を更新"""
+    """レビューコメント一覧を読み直す(カットを開いたときは自動で更新される。
+他の端末から同期で届いたコメントを拾うときに押す)"""
     bl_idname = "musubi.review_refresh"
     bl_label = "コメント一覧を更新"
 
